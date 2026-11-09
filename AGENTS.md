@@ -15,11 +15,12 @@
 ## コマンド（AI が自分で確かめるために使う）
 - データの作り直し: `python3 build/build_data.py ../SPI/SPI言語_問題集_V0.xlsx`（パスワードは .env の WEBTEST_PASSWORD）
 - 起動: `python3 -m http.server 8799 --bind 127.0.0.1 --directory site`（8765 は別のサービスが使っている）
-- テスト: `python3 -m pytest -q tests/test_build.py`、`python3 tests/e2e_check.py`（サーバーを起動してから）
+- 手元版（パスワードなし、1ファイルの HTML）: `python3 build/build_local.py ../SPI/SPI言語_問題集_V0.xlsx` → ../SPI/SPI練習_ローカル版.html（問題が平文で入るので、リポジトリの外に出す）
+- テスト: `python3 -m pytest -q tests/test_build.py`、`python3 tests/e2e_check.py`（サーバーを起動してから）、`python3 tests/local_check.py`（手元版）
 - 公開: main に push すると GitHub Actions（.github/workflows/pages.yml）が site/ を GitHub Pages に出す。
 
 ## このプロジェクトだけの決まり
-- Excel、out/、.env を commit しない。テストには実在の問題を書かず、形だけをまねた見本を使う。
+- Excel、out/、.env、手元版の HTML を commit しない。テストには実在の問題を書かず、形だけをまねた見本を使う。
 - 問題集の版を上げたら（V1 など）、build_data.py の引数を新しい版にして作り直し、種類ごとの問題数の変化を確かめる。
 - 種類の判定は build_data.py の classify と TYPE_OVERRIDES。機械で分けにくい行は TYPE_OVERRIDES に行番号で足す。
 

@@ -935,6 +935,14 @@ $("r-retry-wrong").addEventListener("click", () => {
 
 // ---- 起動 ----
 (async () => {
+  // 手元版（build/build_local.py で作る1ファイルの HTML）は、問題が埋め込まれているのでパスワードなしで開く。
+  if (window.LOCAL_DATA) {
+    DATA = window.LOCAL_DATA;
+    $("logout").hidden = true;
+    initHome();
+    show("home");
+    return;
+  }
   const saved = store.get(KEY_PW, null);
   if (saved) {
     try { await unlock(saved, true); return; } catch { store.del(KEY_PW); }
