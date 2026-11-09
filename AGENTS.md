@@ -1,6 +1,6 @@
 # Webテスト練習サイト（SPI 言語。Claude・Codex 共通。Claude は CLAUDE.md から読み込む）
 
-段階: 開発中（自分だけが使う。GitHub Pages に公開するが、問題はパスワードで暗号化している）
+段階: 開発中（自分だけが使う。2026-11-09 から https://ukyo11261515.github.io/webtest-practice/ に公開。問題はパスワードで暗号化している）
 
 ## 目的
 - 何を作るか: 友人と作った SPI 言語の問題集（Excel）を、本番に近い制限時間で解く練習サイト。
