@@ -22,18 +22,22 @@ def elapsed(page):
     return float(re.match(r"([\d.]+) 秒", page.inner_text("#timer-sec")).group(1))
 
 
-def setup(page, types, mode="exam", order="source", count="0", seconds=None):
+def setup(page, types, mode="exam", order="source", count="0", seconds=None, start="first"):
     page.click("#types-none")
     for t in types:
-        page.check(f'#type-rows input[data-type="{t}"]')
+        page.click(f'#type-chips [data-type="{t}"]')
         if seconds:
-            box = page.locator(f'#type-rows input[type=number][data-type="{t}"]')
+            if not page.locator(".sub-settings").get_attribute("open") is not None:
+                page.click(".sub-settings summary")
+            box = page.locator(f'#type-times input[data-type="{t}"]')
             box.fill(str(seconds))
             box.dispatch_event("change")
-    page.select_option("#opt-mode", mode)
-    page.select_option("#opt-order", order)
-    page.select_option("#opt-count", count)
-    page.select_option("#opt-filter", "all")
+    page.click(f'#mode-seg [data-mode="{mode}"]')
+    page.click(f'#order-seg [data-order="{order}"]')
+    if order == "source":
+        page.click(f'#start-seg [data-start="{start}"]')
+    page.click(f'#count-seg [data-count="{count}"]')
+    page.click('#filter-seg [data-filter="all"]')
     page.check("#opt-auto")
     page.click("#start")
     expect(page.locator("#quiz")).to_be_visible()
@@ -57,6 +61,11 @@ def main():
         page.click("#lock-form button")
         expect(page.locator("#home")).to_be_visible(timeout=20000)
         print("OK 違うパスワードでは開かず、正しいパスワードで開いた。", page.inner_text("#start-info"))
+        assert "on" in page.locator('#order-seg [data-order="source"]').get_attribute("class"), "並び順の既定は問題集の順"
+        page.fill("#count-input", "7")
+        page.dispatch_event("#count-input", "change")
+        assert page.inner_text("#start-info").startswith("7 問"), page.inner_text("#start-info")
+        print("OK 並び順の既定は問題集の順。問題数は数字でも入れられる:", page.inner_text("#start-info"))
 
         # 2. 熟語の意味、10問、本番、制限3秒
         setup(page, ["meaning"], count="10", seconds=3)
@@ -94,9 +103,21 @@ def main():
 
         page.click("#quit")
         expect(page.locator("#result")).to_be_visible()
-        assert page.locator("#r-types tr td").nth(5).inner_text() == "1"
-        print("OK 結果:", page.inner_text("#r-score"), "時間切れ 1 問")
+        assert "時間切れ 1 問" in page.inner_text("#r-score"), page.inner_text("#r-score")
+        cards = page.locator("#r-list .rv")
+        assert cards.count() == 3, cards.count()
+        assert cards.first.locator(".rv-explain").is_visible(), "解説は最初から見える"
+        assert cards.first.locator(".rv-choices li.correct").count() >= 1
+        page.click('#r-filter [data-f="timeout"]')
+        assert page.locator("#r-list .rv").count() == 1
+        print("OK 結果:", page.inner_text("#r-score").replace("\n", " "), "／ 1問ずつ解説が開いた状態で並び、時間切れだけに絞れる")
+        page.screenshot(path=str(SHOTS / "1b_result.png"), full_page=True)
         page.click("#r-home")
+        assert not page.locator('#start-seg [data-start="resume"]').is_disabled()
+        page.click('#type-chips [data-type="meaning"]') if "on" not in page.locator('#type-chips [data-type="meaning"]').get_attribute("class") else None
+        page.click('#start-seg [data-start="resume"]')
+        assert "4〜" in page.inner_text("#start-info"), page.inner_text("#start-info")
+        print("OK 前回の続きから（3問解いたので4問目から）:", page.inner_text("#start-info"))
 
         # 3. 長文（3問組）: タブで切り替え、練習モードで解説
         setup(page, ["reading"], mode="practice")
@@ -119,8 +140,8 @@ def main():
         page.click("#q-submit")
         page.click("#q-submit")
         expect(page.locator("#q-feedback")).to_be_visible()
-        assert page.locator("#q-feedback .fb-item").count() == 3
-        assert page.locator("#q-feedback .verdict").first.inner_text().startswith("正解")
+        assert page.locator("#q-feedback .rv").count() == 3
+        assert page.locator("#q-feedback .badge").first.inner_text() == "正解"
         print(f"OK 3問組をタブで切り替え、問1（{answer1}）は正解、3問分の解説が出た")
         page.screenshot(path=str(SHOTS / "4_reading_feedback.png"), full_page=True)
         page.click("#quit")
@@ -159,7 +180,7 @@ def main():
             page.keyboard.press(d)
         page.screenshot(path=str(SHOTS / "7_order.png"))
         page.click("#q-submit")
-        expect(page.locator("#q-feedback .verdict")).to_contain_text("正解")
+        expect(page.locator("#q-feedback .badge").first).to_have_text("正解")
         print(f"OK 並べ替え {answer} を入力して正解")
         page.click("#quit")
 

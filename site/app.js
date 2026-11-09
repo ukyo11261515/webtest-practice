@@ -125,16 +125,24 @@ $("logout").addEventListener("click", () => {
 });
 
 // ---- 設定 ----
+const SETTINGS_VERSION = 2;
+
 function defaultSettings() {
   const seconds = {};
   for (const [k, t] of Object.entries(DATA.types)) seconds[k] = t.seconds;
-  return { seconds, types: Object.keys(DATA.types), filter: "all", count: 20, order: "random", mode: "exam", auto: true, sound: true };
+  return {
+    v: SETTINGS_VERSION, seconds, types: Object.keys(DATA.types), filter: "all", count: 20,
+    order: "source", start: "first", startNumber: 1, resumeRow: 0, mode: "exam", auto: true, sound: true,
+  };
 }
 
 function loadSettings() {
   const d = defaultSettings();
   const s = store.get(KEY_SETTINGS, {});
-  return { ...d, ...s, seconds: { ...d.seconds, ...(s.seconds || {}) } };
+  const merged = { ...d, ...s, seconds: { ...d.seconds, ...(s.seconds || {}) } };
+  // 2026-11-09: 並び順の既定を問題集の順に変えた。古い設定（ランダム）は一度だけ問題集の順に戻す。
+  if (s.v !== SETTINGS_VERSION) { merged.order = "source"; merged.v = SETTINGS_VERSION; }
+  return merged;
 }
 
 let settings = null;
@@ -143,63 +151,105 @@ function saveSettings() { store.set(KEY_SETTINGS, settings); }
 
 function history() { return store.get(KEY_HISTORY, {}); }
 
+const scoredOf = (k) => DATA.questions.filter((q) => q.type === k && q.scored);
+
 function initHome() {
   settings = loadSettings();
+  saveSettings();
   $("home-title").textContent = DATA.title;
+  renderTypeChips();
+  renderTypeTimes();
+  $("opt-auto").checked = settings.auto;
+  $("opt-sound").checked = settings.sound;
+  refreshHome();
+}
+
+function renderTypeChips() {
   const hist = history();
-  const tbody = $("type-rows");
-  tbody.replaceChildren();
-  for (const [k, t] of Object.entries(DATA.types)) {
-    const qs = DATA.questions.filter((q) => q.type === k && q.scored);
-    if (!qs.length) continue;
+  $("type-chips").replaceChildren(...Object.entries(DATA.types).map(([k, t]) => {
+    const qs = scoredOf(k);
     const tried = qs.filter((q) => hist[q.id]);
     const n = tried.reduce((a, q) => a + hist[q.id].n, 0);
     const ok = tried.reduce((a, q) => a + hist[q.id].ok, 0);
-    const rate = n ? `${Math.round((ok / n) * 100)}%（${tried.length}問・${n}回）` : "—";
-    const cb = el("input", { type: "checkbox", "data-type": k });
-    cb.checked = settings.types.includes(k);
-    cb.addEventListener("change", () => {
-      settings.types = [...document.querySelectorAll("#type-rows input[type=checkbox]")].filter((c) => c.checked).map((c) => c.dataset.type);
-      saveSettings(); updateStartInfo();
+    const done = `${tried.length}/${qs.length} 問済み`;
+    const rate = n ? `正答率 ${Math.round((ok / n) * 100)}%` : "未回答";
+    const chip = el("button", { type: "button", class: "chip", "data-type": k, "aria-pressed": "false" },
+      el("span", { class: "chip-check" }),
+      el("span", { class: "chip-body" },
+        el("span", { class: "chip-title", text: t.label }),
+        el("span", { class: "chip-meta", text: `${qs.length}問・${settings.seconds[k]}秒` }),
+        el("span", { class: "chip-meta", text: `${done}・${rate}` })));
+    chip.addEventListener("click", () => {
+      settings.types = settings.types.includes(k) ? settings.types.filter((x) => x !== k) : [...settings.types, k];
+      saveSettings(); refreshHome();
     });
-    const sec = el("input", { type: "number", min: "3", max: "600", step: "1", "data-type": k });
-    sec.value = settings.seconds[k];
-    sec.addEventListener("change", () => {
-      const v = Math.max(3, Math.min(600, Math.round(Number(sec.value) || t.seconds)));
-      sec.value = v; settings.seconds[k] = v; saveSettings();
-    });
-    tbody.append(el("tr", {},
-      el("td", {}, cb),
-      el("td", { text: t.label }),
-      el("td", { class: "num", text: `${qs.length}` }),
-      el("td", {}, sec, " 秒"),
-      el("td", { class: "num", text: rate })));
-  }
-  $("opt-filter").value = settings.filter;
-  $("opt-count").value = String(settings.count);
-  $("opt-order").value = settings.order;
-  $("opt-mode").value = settings.mode;
-  $("opt-auto").checked = settings.auto;
-  $("opt-sound").checked = settings.sound;
-  updateStartInfo();
+    return chip;
+  }));
 }
 
-const bindSetting = (id, key, parse = (v) => v) => {
-  $(id).addEventListener("change", (e) => {
-    settings[key] = e.target.type === "checkbox" ? e.target.checked : parse(e.target.value);
-    saveSettings(); updateStartInfo();
-  });
-};
-bindSetting("opt-filter", "filter");
-bindSetting("opt-count", "count", Number);
-bindSetting("opt-order", "order");
-bindSetting("opt-mode", "mode");
-bindSetting("opt-auto", "auto");
-bindSetting("opt-sound", "sound");
+function renderTypeTimes() {
+  $("type-times").replaceChildren(...Object.entries(DATA.types).map(([k, t]) => {
+    const box = el("input", { type: "number", min: "3", max: "600", step: "1", inputmode: "numeric", "data-type": k });
+    box.value = settings.seconds[k];
+    box.addEventListener("change", () => {
+      const v = Math.max(3, Math.min(600, Math.round(Number(box.value) || t.seconds)));
+      box.value = v; settings.seconds[k] = v; saveSettings(); renderTypeChips(); refreshHome();
+    });
+    return el("label", { class: "time-row" }, el("span", { text: t.label }), el("span", {}, box, " 秒"));
+  }));
+}
 
-$("types-all").addEventListener("click", () => { settings.types = Object.keys(DATA.types); saveSettings(); initHome(); });
-$("types-none").addEventListener("click", () => { settings.types = []; saveSettings(); initHome(); });
-$("times-reset").addEventListener("click", () => { settings.seconds = defaultSettings().seconds; saveSettings(); initHome(); });
+// 押しボタン式の選択（seg）の共通処理
+function bindSeg(id, attr, key, parse = (v) => v) {
+  for (const b of $(id).querySelectorAll("button")) {
+    b.addEventListener("click", () => { settings[key] = parse(b.dataset[attr]); saveSettings(); refreshHome(); });
+  }
+}
+function paintSeg(id, attr, value) {
+  for (const b of $(id).querySelectorAll("button")) b.classList.toggle("on", String(b.dataset[attr]) === String(value));
+}
+
+bindSeg("count-seg", "count", "count", Number);
+bindSeg("order-seg", "order", "order");
+bindSeg("start-seg", "start", "start");
+bindSeg("filter-seg", "filter", "filter");
+bindSeg("mode-seg", "mode", "mode");
+$("count-input").addEventListener("change", (e) => {
+  const v = Math.max(1, Math.min(999, Math.round(Number(e.target.value) || 0)));
+  if (v) { settings.count = v; saveSettings(); refreshHome(); }
+});
+$("start-number").addEventListener("change", (e) => {
+  settings.startNumber = Math.max(1, Math.round(Number(e.target.value) || 1));
+  saveSettings(); refreshHome();
+});
+$("opt-auto").addEventListener("change", (e) => { settings.auto = e.target.checked; saveSettings(); });
+$("opt-sound").addEventListener("change", (e) => { settings.sound = e.target.checked; saveSettings(); });
+$("types-all").addEventListener("click", () => { settings.types = Object.keys(DATA.types); saveSettings(); refreshHome(); });
+$("types-none").addEventListener("click", () => { settings.types = []; saveSettings(); refreshHome(); });
+$("times-reset").addEventListener("click", () => {
+  settings.seconds = defaultSettings().seconds; saveSettings(); renderTypeChips(); renderTypeTimes(); refreshHome();
+});
+
+function refreshHome() {
+  for (const c of document.querySelectorAll("#type-chips .chip")) {
+    const on = settings.types.includes(c.dataset.type);
+    c.classList.toggle("on", on);
+    c.setAttribute("aria-pressed", String(on));
+  }
+  paintSeg("count-seg", "count", [10, 20, 30, 50, 0].includes(settings.count) ? settings.count : "custom");
+  $("count-input").value = [10, 20, 30, 50, 0].includes(settings.count) ? "" : settings.count;
+  paintSeg("order-seg", "order", settings.order);
+  paintSeg("start-seg", "start", settings.start);
+  paintSeg("filter-seg", "filter", settings.filter);
+  paintSeg("mode-seg", "mode", settings.mode);
+  $("start-block").hidden = settings.order !== "source";
+  $("start-number-wrap").hidden = settings.start !== "number";
+  $("start-number").value = settings.startNumber;
+  const resumeBtn = $("start-seg").querySelector('[data-start="resume"]');
+  resumeBtn.disabled = !settings.resumeRow;
+  if (!settings.resumeRow && settings.start === "resume") paintSeg("start-seg", "start", "first");
+  updateStartInfo();
+}
 
 function pool() {
   const hist = history();
@@ -211,10 +261,18 @@ function pool() {
   });
 }
 
-function updateStartInfo() {
-  const n = pool().length;
-  $("start-info").textContent = `対象 ${n} 問`;
-  $("start").disabled = n === 0;
+// 問題集の順のときに、何番目から出すか（0 始まり）
+function startIndex(qs) {
+  if (settings.order !== "source" || !qs.length) return 0;
+  let i = 0;
+  if (settings.start === "number") i = Math.min(qs.length - 1, Math.max(0, settings.startNumber - 1));
+  if (settings.start === "resume" && settings.resumeRow) {
+    i = qs.findIndex((q) => q.row > settings.resumeRow);
+    if (i < 0) i = 0; // 最後まで解き終えていたら最初に戻る
+  }
+  // 長文の組の途中から始まらないように、組の先頭まで戻す。
+  while (i > 0 && qs[i].group && qs[i - 1].group === qs[i].group) i--;
+  return i;
 }
 
 function shuffle(a) {
@@ -224,9 +282,11 @@ function shuffle(a) {
 
 // 長文の3問組は、ばらさずに続けて出す。
 function buildSet(qs) {
+  const from = startIndex(qs);
+  const ordered = qs.slice(from);
   const units = [];
   const byGroup = new Map();
-  for (const q of qs) {
+  for (const q of ordered) {
     if (q.group) {
       if (!byGroup.has(q.group)) { byGroup.set(q.group, []); units.push(byGroup.get(q.group)); }
       byGroup.get(q.group).push(q);
@@ -236,10 +296,25 @@ function buildSet(qs) {
   const out = [];
   const limit = settings.count || Infinity;
   for (const u of units) { if (out.length >= limit) break; out.push(...u); }
-  return out;
+  return { questions: out, from };
 }
 
-$("start").addEventListener("click", () => startQuiz(buildSet(pool())));
+function updateStartInfo() {
+  const qs = pool();
+  const n = qs.length;
+  const info = $("start-info");
+  if (!settings.types.length) { info.textContent = "問題タイプを1つ以上選んでください"; $("start").disabled = true; return; }
+  if (!n) { info.textContent = "条件に合う問題がありません"; $("start").disabled = true; return; }
+  const preview = buildSet(qs);
+  const m = preview.questions.length;
+  const secs = preview.questions.reduce((s, q) => s + settings.seconds[q.type], 0);
+  const where = settings.order === "source" ? `${preview.from + 1}〜${preview.from + m} 問目` : "ランダム";
+  const min = secs >= 60 ? `最大 ${Math.floor(secs / 60)}分${secs % 60 ? `${secs % 60}秒` : ""}` : `最大 ${secs}秒`;
+  info.replaceChildren(el("b", { text: `${m} 問` }), `（対象 ${n} 問中 ${where}）・${min}`);
+  $("start").disabled = false;
+}
+
+$("start").addEventListener("click", () => startQuiz(buildSet(pool()).questions));
 
 // ---- 出題（テストセンターの画面に寄せる） ----
 const INSTR = {
@@ -393,8 +468,7 @@ function renderTab() {
   passage.className = "spi-passage" + (q.passage.length < 60 ? " short" : "");
   $("q-sub").textContent = q.optionKind === "kana" ? q.options.map((o) => `${o.key}　${o.text}`).join("\n") : "";
 
-  const showPrompt = q.prompt && (q.type === "reading" || (q.type === "order" && q.mode !== "order") || q.type === "blank_passage");
-  $("q-prompt").textContent = showPrompt ? q.prompt : "";
+  $("q-prompt").textContent = promptFor(q);
 
   const body = $("q-body");
   if (q.mode === "order") body.replaceChildren(renderOrder(q));
@@ -606,8 +680,7 @@ function submitUnit(timedOut) {
     renderTab();
     const rs = session.results.slice(-cur.unit.qs.length);
     $("q-feedback").replaceChildren(
-      ...rs.map((r, i) => el("div", { class: "fb-item" },
-        rs.length > 1 ? el("b", { text: `問${i + 1}` }) : null, ...feedbackNodes(r))),
+      ...rs.map((r, i) => reviewCard(r, rs.length > 1 ? i + 1 : 0, true)),
       el("div", { class: "fb-actions" }, el("button", { class: "next-btn", type: "button", text: "次の問題へ", onclick: () => nextUnit() })));
     $("q-feedback").hidden = false;
     $("q-submit").textContent = session.unitIndex + 1 < session.units.length ? "次の問題へ" : "結果を見る";
@@ -643,20 +716,6 @@ function record(r) {
   store.set(KEY_HISTORY, hist);
 }
 
-function feedbackNodes(r) {
-  const q = r.q;
-  const cls = r.ok === null ? "na" : r.ok ? "ok" : "ng";
-  const word = r.ok === null ? "採点なし" : r.ok ? "正解" : "不正解";
-  const time = `${(r.ms / 1000).toFixed(1)} 秒${r.timedOut ? "（時間切れ）" : ""}`;
-  return [
-    el("div", { class: `verdict ${cls}`, text: `${word}　${time}` }),
-    el("p", {}, el("b", { text: "あなたの答え: " }), answerLabel(q, r.answer)),
-    el("p", {}, el("b", { text: "正解: " }), correctLabel(q)),
-    ...q.notes.map((n) => el("div", { class: "note", text: n })),
-    q.explanation ? el("div", { class: "explain", text: q.explanation }) : null,
-  ].filter(Boolean);
-}
-
 function nextUnit() {
   session.unitIndex += 1;
   if (session.unitIndex >= session.units.length) return finish();
@@ -687,61 +746,129 @@ document.addEventListener("keydown", (e) => {
   if (idx >= 0 && idx < list.length) { e.preventDefault(); choose(list[idx].key); }
 });
 
-// ---- 結果 ----
+// ---- 結果（答え合わせと解説） ----
+const fmtSec = (ms) => (ms / 1000).toFixed(1);
+
+function promptFor(q) {
+  const show = q.prompt && (q.type === "reading" || (q.type === "order" && q.mode !== "order") || q.type === "blank_passage");
+  return show ? q.prompt : "";
+}
+
+// 1問分の答え合わせのカード。compact は練習モード用（本文と選択肢は画面に出ているので省く）。
+function reviewCard(r, no, compact = false) {
+  const q = r.q;
+  const cls = r.ok === null ? "na" : r.ok ? "ok" : "ng";
+  const word = r.ok === null ? "採点なし" : r.ok ? "正解" : "不正解";
+  const limit = settings.seconds[q.type];
+  const card = el("article", { class: `rv rv-${cls}` });
+  card.append(el("div", { class: "rv-head" },
+    el("span", { class: `badge ${cls}`, text: word }),
+    no ? el("span", { class: "rv-no", text: `問${no}` }) : null,
+    el("span", { class: "rv-type", text: DATA.types[q.type].label }),
+    el("span", { class: "rv-time" + (r.timedOut ? " over" : ""), text: `${fmtSec(r.ms)} 秒 / ${limit} 秒${r.timedOut ? "（時間切れ）" : ""}` })));
+
+  if (!compact) {
+    card.append(el("div", { class: "rv-instr", text: instrFor(q) }));
+    const passage = el("div", { class: "rv-passage" + (q.passage.length < 60 ? " short" : "") }, ...passageNodes(q));
+    if (q.passage.length >= 160) {
+      const d = el("details", { class: "rv-more" }, el("summary", { text: "本文を表示" }), passage);
+      card.append(d);
+    } else card.append(passage);
+    if (q.optionKind === "kana") card.append(el("div", { class: "rv-sub", text: q.options.map((o) => `${o.key}　${o.text}`).join("\n") }));
+    const pr = promptFor(q);
+    if (pr) card.append(el("div", { class: "rv-prompt", text: pr }));
+  }
+
+  if (q.mode === "single" || q.mode === "multi") {
+    if (compact) card.append(answerLines(r));
+    else {
+      card.append(el("ul", { class: "rv-choices" }, ...choiceList(q).map((o) => {
+        const correct = q.optionKind === "kana"
+          ? q.accepted.some((a) => sameSet(a, o.set))
+          : q.accepted.some((a) => a.includes(o.key));
+        const mine = isSelected(q, r.answer, o.key);
+        return el("li", { class: (correct ? "correct" : "") + (mine && !correct ? " wrong" : "") },
+          el("span", { class: "key", text: o.key }), el("span", { class: "txt", text: o.text }),
+          el("span", { class: "tags" },
+            mine ? el("span", { class: "tag-mine", text: "あなた" }) : null,
+            correct ? el("span", { class: "tag-ok", text: "正解" }) : null));
+      })));
+      if (!r.answer || r.answer.length === 0) card.append(el("p", { class: "rv-line muted", text: "あなたの答え: 無回答" }));
+    }
+  } else if (q.mode === "order") {
+    if (!compact) card.append(el("ul", { class: "rv-choices plain" }, ...q.options.map((o) => el("li", {}, el("span", { class: "key", text: o.key }), el("span", { class: "txt", text: o.text })))));
+    card.append(answerLines(r));
+    if (q.accepted[0]) {
+      const frag = q.accepted[0].split("").map((k) => (q.options.find((o) => o.key === k) || {}).text || "").join("");
+      card.append(el("p", { class: "rv-line" }, el("b", { text: "正しい文: " }), q.passage.replace(/\s*12345\s*/, frag)));
+    }
+  } else {
+    card.append(answerLines(r));
+  }
+
+  for (const n of q.notes) card.append(el("div", { class: "note", text: n }));
+  if (q.explanation) card.append(el("div", { class: "rv-explain" }, el("div", { class: "rv-explain-label", text: "解説" }), el("div", { text: q.explanation })));
+  return card;
+}
+
+function answerLines(r) {
+  return el("div", { class: "rv-lines" },
+    el("p", { class: "rv-line" }, el("b", { text: "あなたの答え: " }), answerLabel(r.q, r.answer)),
+    el("p", { class: "rv-line" }, el("b", { text: "正解: " }), correctLabel(r.q)));
+}
+
+let resultFilter = "all";
+
 function finish() {
   const rs = session.results;
+  if (settings.order === "source" && rs.length) {
+    settings.resumeRow = Math.max(...rs.map((r) => r.q.row));
+    saveSettings();
+  }
   show("result");
   const scored = rs.filter((r) => r.ok !== null);
   const ok = scored.filter((r) => r.ok).length;
   const total = rs.reduce((s, r) => s + r.ms, 0);
-  $("r-score").textContent = scored.length
-    ? `${ok} / ${scored.length} 問正解（${Math.round((ok / scored.length) * 100)}%）　合計 ${(total / 1000).toFixed(1)} 秒`
-    : "回答した問題はありません";
+  const pct = scored.length ? Math.round((ok / scored.length) * 100) : 0;
+  const tout = rs.filter((r) => r.timedOut).length;
+  $("r-score").replaceChildren(rs.length
+    ? el("div", { class: "score-main" },
+      el("div", { class: "score-pct", text: `${pct}%` }),
+      el("div", { class: "score-sub" },
+        el("div", { text: `${ok} / ${scored.length} 問正解` }),
+        el("div", { class: "muted", text: `合計 ${fmtSec(total)} 秒・1問あたり ${fmtSec(total / rs.length)} 秒・時間切れ ${tout} 問` })))
+    : el("div", { class: "muted", text: "回答した問題はありません" }));
 
-  const tb = $("r-types");
-  tb.replaceChildren();
-  for (const [k, t] of Object.entries(DATA.types)) {
+  $("r-types").replaceChildren(...Object.entries(DATA.types).flatMap(([k, t]) => {
     const g = rs.filter((r) => r.q.type === k);
-    if (!g.length) continue;
+    if (!g.length) return [];
     const gs = g.filter((r) => r.ok !== null);
     const gok = gs.filter((r) => r.ok).length;
-    const avg = g.reduce((s, r) => s + r.ms, 0) / g.length / 1000;
-    tb.append(el("tr", {},
-      el("td", { text: t.label }), el("td", { class: "num", text: g.length }),
-      el("td", { class: "num", text: gok }),
-      el("td", { class: "num", text: gs.length ? `${Math.round((gok / gs.length) * 100)}%` : "—" }),
-      el("td", { class: "num", text: `${avg.toFixed(1)} 秒（制限 ${settings.seconds[k]} 秒）` }),
-      el("td", { class: "num", text: g.filter((r) => r.timedOut).length })));
-  }
+    const p = gs.length ? Math.round((gok / gs.length) * 100) : 0;
+    const avg = g.reduce((s, r) => s + r.ms, 0) / g.length;
+    return [el("div", { class: "tr-row" },
+      el("div", { class: "tr-name", text: t.label }),
+      el("div", { class: "tr-bar" }, el("i", { style: `width:${p}%` })),
+      el("div", { class: "tr-num", text: `${gok}/${gs.length}（${p}%）` }),
+      el("div", { class: "tr-time muted", text: `平均 ${fmtSec(avg)} 秒 / ${settings.seconds[k]} 秒` }))];
+  }));
+  resultFilter = "all";
   renderResultList();
   $("r-retry-wrong").disabled = !rs.some((r) => r.ok === false);
 }
 
 function renderResultList() {
-  const only = $("r-only-wrong").checked;
-  const list = $("r-list");
-  list.replaceChildren();
-  session.results.forEach((r, i) => {
-    if (only && r.ok !== false) return;
-    const cls = r.ok === null ? "na" : r.ok ? "ok" : "ng";
-    const mark = r.ok === null ? "採点なし" : r.ok ? "正解" : "不正解";
-    const head = r.q.passage.replace(/\s+/g, " ").slice(0, 34);
-    const det = el("details", {},
-      el("summary", {},
-        el("span", { class: `mark ${cls}`, text: mark }),
-        el("span", { text: `${i + 1}. ${DATA.types[r.q.type].label}　${head}${r.q.passage.length > 34 ? "…" : ""}` }),
-        el("span", { class: "t", text: `${(r.ms / 1000).toFixed(1)} 秒${r.timedOut ? " 時間切れ" : ""}` })),
-      el("div", { class: "detail" },
-        el("div", { class: "passage", text: r.q.passage }),
-        r.q.prompt ? el("div", { class: "prompt", text: r.q.prompt }) : null,
-        (r.q.mode === "single" || r.q.mode === "multi" || r.q.mode === "order")
-          ? el("div", { class: "prompt", text: r.q.options.map((o) => `${o.key} ${o.text}`).join("\n") }) : null,
-        ...feedbackNodes(r).slice(1)));
-    list.append(el("li", {}, det));
-  });
+  paintSeg("r-filter", "f", resultFilter);
+  const items = session.results.map((r, i) => ({ r, i })).filter(({ r }) =>
+    resultFilter === "ng" ? r.ok === false : resultFilter === "timeout" ? r.timedOut : true);
+  $("r-list").replaceChildren(...(items.length
+    ? items.map(({ r, i }) => reviewCard(r, i + 1))
+    : [el("p", { class: "card muted", text: "該当する問題はありません。" })]));
 }
 
-$("r-only-wrong").addEventListener("change", renderResultList);
+for (const b of $("r-filter").querySelectorAll("button")) {
+  b.addEventListener("click", () => { resultFilter = b.dataset.f; renderResultList(); });
+}
 $("r-home").addEventListener("click", () => { initHome(); show("home"); });
 $("r-retry-wrong").addEventListener("click", () => {
   const wrong = session.results.filter((r) => r.ok === false).map((r) => r.q);

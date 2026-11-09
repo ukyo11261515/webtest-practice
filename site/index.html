@@ -29,52 +29,62 @@
   </header>
 
   <div class="card">
-    <h2>出題する種類と制限時間</h2>
-    <table class="types home">
-      <thead><tr><th></th><th>種類</th><th>問題数</th><th>制限時間</th><th>これまでの正答率（累計）</th></tr></thead>
-      <tbody id="type-rows"></tbody>
-    </table>
-    <div class="row-buttons">
-      <button id="types-all" class="small">すべて選ぶ</button>
-      <button id="types-none" class="small">すべて外す</button>
-      <button id="times-reset" class="small">制限時間を既定に戻す</button>
+    <div class="card-head">
+      <h2>問題タイプ</h2>
+      <div class="row-buttons tight">
+        <button id="types-all" class="small">すべて</button>
+        <button id="types-none" class="small">外す</button>
+      </div>
+    </div>
+    <div id="type-chips" class="type-chips"></div>
+    <details class="sub-settings">
+      <summary>制限時間を変える</summary>
+      <div id="type-times" class="type-times"></div>
+      <button id="times-reset" class="small">既定に戻す</button>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>問題数</h2>
+    <div class="seg" id="count-seg">
+      <button data-count="10">10</button><button data-count="20">20</button><button data-count="30">30</button><button data-count="50">50</button><button data-count="0">すべて</button>
+    </div>
+    <label class="inline-num">数を入れる <input id="count-input" type="number" min="1" max="999" inputmode="numeric"> 問</label>
+  </div>
+
+  <div class="card">
+    <h2>並び順とどこから解くか</h2>
+    <div class="seg" id="order-seg">
+      <button data-order="source">問題集の順</button><button data-order="random">ランダム</button>
+    </div>
+    <div id="start-block">
+      <div class="seg" id="start-seg">
+        <button data-start="first">最初から</button><button data-start="resume">前回の続きから</button><button data-start="number">何問目から</button>
+      </div>
+      <label class="inline-num" id="start-number-wrap"><input id="start-number" type="number" min="1" inputmode="numeric"> 問目から</label>
     </div>
   </div>
 
-  <div class="card grid2">
-    <label>出題する問題
-      <select id="opt-filter">
-        <option value="all">すべて</option>
-        <option value="wrong">直近で間違えた・時間切れの問題</option>
-        <option value="new">まだ解いていない問題</option>
-      </select>
-    </label>
-    <label>問題数
-      <select id="opt-count">
-        <option value="10">10問</option>
-        <option value="20">20問</option>
-        <option value="40">40問</option>
-        <option value="0">すべて</option>
-      </select>
-    </label>
-    <label>並び順
-      <select id="opt-order">
-        <option value="random">ランダム</option>
-        <option value="source">問題集の順</option>
-      </select>
-    </label>
-    <label>答え合わせ
-      <select id="opt-mode">
-        <option value="exam">本番（最後にまとめて）</option>
-        <option value="practice">練習（1問ごとに解説）</option>
-      </select>
-    </label>
+  <div class="card">
+    <h2>出題のしかた</h2>
+    <div class="field">
+      <span class="field-label">出題する問題</span>
+      <div class="seg" id="filter-seg">
+        <button data-filter="all">すべて</button><button data-filter="wrong">間違えた問題</button><button data-filter="new">未回答の問題</button>
+      </div>
+    </div>
+    <div class="field">
+      <span class="field-label">答え合わせ</span>
+      <div class="seg" id="mode-seg">
+        <button data-mode="exam">本番（最後にまとめて）</button><button data-mode="practice">練習（1問ごと）</button>
+      </div>
+    </div>
     <label class="check"><input id="opt-auto" type="checkbox"> 時間切れで次の問題へ進む（本番と同じ）</label>
     <label class="check"><input id="opt-sound" type="checkbox"> 残り5秒から音を鳴らす</label>
   </div>
 
-  <div class="start-bar">
-    <span id="start-info" class="muted"></span>
+  <div class="start-bar sticky">
+    <div id="start-info" class="start-info"></div>
     <button id="start" class="primary big">はじめる</button>
   </div>
 </section>
@@ -129,20 +139,19 @@
 
 <section id="result" class="screen" hidden>
   <header class="top"><h1>結果</h1></header>
-  <div class="card">
-    <div id="r-score" class="score"></div>
-    <table class="types">
-      <thead><tr><th>種類</th><th>問題数</th><th>正解</th><th>正答率</th><th>平均時間</th><th>時間切れ</th></tr></thead>
-      <tbody id="r-types"></tbody>
-    </table>
+  <div class="card summary">
+    <div id="r-score" class="score-row"></div>
+    <div id="r-types" class="type-results"></div>
   </div>
-  <div class="card">
-    <h2>1問ずつの結果</h2>
-    <div class="row-buttons"><label class="check"><input id="r-only-wrong" type="checkbox"> 間違えた問題だけ表示</label></div>
-    <ol id="r-list" class="r-list"></ol>
+  <div class="card review-head">
+    <h2>答え合わせと解説</h2>
+    <div class="seg" id="r-filter">
+      <button data-f="all">すべて</button><button data-f="ng">不正解だけ</button><button data-f="timeout">時間切れだけ</button>
+    </div>
   </div>
-  <div class="start-bar">
-    <button id="r-retry-wrong" class="">間違えた問題を解き直す</button>
+  <div id="r-list" class="review-list"></div>
+  <div class="start-bar sticky">
+    <button id="r-retry-wrong">間違えた問題を解き直す</button>
     <button id="r-home" class="primary big">最初の画面へ</button>
   </div>
 </section>
