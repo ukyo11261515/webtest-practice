@@ -139,6 +139,7 @@ def main():
         # 5. 用法: 下線
         setup(page, ["usage"])
         ul = page.inner_text("#q-passage .ul")
+        assert ul == "あずかる", ul
         print(f"OK 用法の問題の下線: {page.inner_text('#q-passage')} → 下線は {ul}")
         page.screenshot(path=str(SHOTS / "6_usage.png"))
         page.click("#quit")
@@ -152,6 +153,7 @@ def main():
             page.locator("#q-body .opt").first.click()
             page.click("#q-submit")
             page.click("#q-submit")
+        assert page.locator(".order-slots").count() == 1
         answer = page.evaluate("session.cur.unit.qs[session.cur.tab].accepted[0]")
         for d in answer:
             page.keyboard.press(d)

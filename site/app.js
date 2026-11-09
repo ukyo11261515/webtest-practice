@@ -280,14 +280,14 @@ function passageNodes(q) {
   if (q.type === "order" && q.mode === "order") text = text.replace(/\s*12345\s*/, "［1］［2］［3］［4］［5］");
   if (q.type !== "meaning" && q.type !== "usage") return [text];
 
-  let target = null;
+  let target = q.underline || null;
   let whole = false;
   const notes = [
     /（下線(?:部)?(?:は|：|:)?\s*「?([^」）]+?)」?）/,
     /（「([^」]+)」に下線）/,
   ];
   if (/（全体に下線）/.test(text)) { text = text.replace(/（全体に下線）/, ""); whole = true; }
-  for (const re of notes) {
+  for (const re of target ? [] : notes) {
     const m = text.match(re);
     if (m) { target = m[1].trim(); text = text.replace(re, ""); break; }
   }
@@ -383,8 +383,10 @@ function renderTab() {
   $("q-instr").textContent = instrFor(q);
 
   const badge = $("q-group-badge");
-  badge.hidden = cur.unit.qs.length < 2;
-  badge.textContent = `この問題は${cur.unit.qs.length}問組です`;
+  // 解き直しで組の一部だけを出すときも、元の組の問題数を出す（設問の「3問組の2問目」と合わせる）。
+  const groupSize = q.group ? DATA.questions.filter((x) => x.group === q.group).length : 1;
+  badge.hidden = groupSize < 2;
+  badge.textContent = `この問題は${groupSize}問組です`;
 
   const passage = $("q-passage");
   passage.replaceChildren(...passageNodes(q));

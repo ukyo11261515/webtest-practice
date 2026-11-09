@@ -174,9 +174,12 @@ def shares_word(a: str, b: str) -> bool:
     return False
 
 
+# 下線の印がなく、サイトの推定（選択肢に共通する語）では誤る行の下線の語（2026-11-09 確認）。
+UNDERLINE_OVERRIDES = {93: "う", 303: "手", 329: "持つ"}
+
 # 機械の判定では分けにくい行を、問題を読んで決めた種類（2026-11-09 確認）。
 TYPE_OVERRIDES = {
-    12: "usage", 13: "usage", 93: "usage", 303: "usage", 327: "usage", 329: "usage",
+    12: "usage", 13: "usage", 75: "usage", 93: "usage", 154: "usage", 303: "usage", 327: "usage", 329: "usage",
     161: "meaning", 182: "meaning", 241: "meaning", 266: "meaning",
     309: "meaning", 314: "meaning", 334: "meaning", 335: "meaning",
 }
@@ -246,8 +249,9 @@ def build_questions(rows):
             accepted = parsed
             # ア・イ・ウの問題は本番どおり A アだけ〜F イとウ の6択で出すため、該当なしは選べない。
             if kind == "kana" and [] in accepted:
-                notes.append("本番の6択（アだけ〜イとウ）に該当なしがないため、採点しません。")
                 accepted = [a for a in accepted if a]
+                notes.append("本番の6択（アだけ〜イとウ）に該当なしがないため、"
+                             + ("該当なし以外の答えで採点します。" if accepted else "採点しません。"))
             multi = kind == "kana" or "すべて選び" in prompt or any(len(a) > 1 for a in accepted)
             mode = "multi" if multi else "single"
             if len(options) < 2:
@@ -277,6 +281,7 @@ def build_questions(rows):
                 "notes": notes,
                 "explanation": (logic or "").strip(),
                 "group": f"g{group_key(passage)}" if in_group else None,
+                "underline": UNDERLINE_OVERRIDES.get(row),
             }
         )
     return questions, issues
