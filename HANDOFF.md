@@ -5,6 +5,8 @@
 - reviewer の指摘8件を直し、pytest 15件、Playwright の通し13項目が通った。
 - https://ukyo11261515.github.io/webtest-practice/ に公開（リポジトリ ukyo11261515/webtest-practice、公開）。公開版でも通しの13項目が通った。
 
+- 2026-11-09 21:40 ごろ、出題画面をテストセンターの画面に寄せて作り直した（本人のスクリーンショット4枚に合わせた）。reviewer の指摘3件を直し、公開版で通しの13項目が通った。
+
 ## 決めたこと
 - 公開は GitHub の公開リポジトリ + GitHub Pages（Actions）。問題は AES-GCM で暗号化し、平文は commit しない。
 - 原本と AI の答えが違う行は、どちらも正解にして注記を出す。
