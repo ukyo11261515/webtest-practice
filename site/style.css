@@ -42,7 +42,7 @@ button.link { border: none; background: none; color: var(--accent); padding: 4px
 
 /* 出題画面（テストセンターの画面に寄せる） */
 #app.wide { max-width: 1180px; }
-.quiz-top { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+.quiz-top { display: flex; justify-content: flex-end; align-items: center; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
 .spi {
   background: #fff; border: 1px solid #d5d8dc; box-shadow: 0 1px 4px rgba(0,0,0,.08);
   display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr auto;
@@ -117,6 +117,20 @@ button.link { border: none; background: none; color: var(--accent); padding: 4px
 .text-answer { font: inherit; font-size: 17px; padding: 6px 10px; border: 1px solid #777; width: min(300px, 100%); }
 
 .note { overflow-wrap: anywhere; background: #fff7e6; border: 1px solid #f3d9a4; border-radius: 8px; padding: 8px 12px; font-size: 14px; margin: 8px 0; }
+
+/* 画面共有中の帯（Chrome の帯に似せた見た目だけ） */
+#quiz { padding-bottom: 76px; }
+.share-bar {
+  position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 30;
+  display: flex; align-items: center; gap: 14px; white-space: nowrap;
+  background: #fff; border: 1px solid #d3d6da; border-radius: 10px; padding: 8px 14px 8px 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.18); font-family: "Hiragino Sans", "Yu Gothic UI", sans-serif; font-size: 14px; color: #202124;
+  user-select: none;
+}
+.share-grip { width: 6px; height: 16px; border-left: 2px solid #9aa0a6; border-right: 2px solid #9aa0a6; opacity: .8; }
+.share-stop { background: #0b57d0; border: none; color: #fff; font-weight: 700; border-radius: 999px; padding: 7px 18px; font-size: 14px; cursor: default; }
+.share-stop:hover { border: none; }
+.share-hide { background: none; border: none; color: #0b57d0; text-decoration: underline; padding: 4px 2px; font-size: 14px; cursor: default; }
 
 /* 最初の画面 */
 .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
@@ -217,6 +231,11 @@ button.link { border: none; background: none; color: var(--accent); padding: 4px
   .spi-timer { left: 0; right: 108px; padding: 0 10px; border-top: 1px solid #d5d8dc; }
   .spi-next { right: 0; width: 108px; padding-right: 10px; border-top: 1px solid #d5d8dc; }
   .timer-sec { min-width: 0; }
+  #quiz { padding-bottom: 60px; }
+  .share-bar { bottom: 66px; gap: 7px; padding: 6px 9px 6px 7px; font-size: 11px; width: calc(100vw - 16px); max-width: 380px; }
+  .share-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .share-stop { flex: none; padding: 5px 10px; font-size: 11px; }
+  .share-hide { flex: none; font-size: 11px; }
   .type-chips { grid-template-columns: 1fr 1fr; }
   .chip { padding: 8px 9px; gap: 7px; }
   .chip-title { font-size: 14px; }

@@ -90,7 +90,7 @@
 
 <section id="quiz" class="screen" hidden>
   <div class="quiz-top">
-    <span id="q-progress"></span>
+    <span id="q-progress" hidden></span>
     <button id="quit" class="link">やめて結果を見る</button>
   </div>
 
@@ -134,6 +134,14 @@
   </div>
 
   <div id="q-feedback" class="card feedback" hidden></div>
+
+  <!-- 本番の緊張感を出すための、画面共有中の帯の見た目だけ（押しても何も起きない） -->
+  <div class="share-bar" aria-hidden="true">
+    <span class="share-grip"></span>
+    <span class="share-text">exam.excert.org が画面を共有しています。</span>
+    <button type="button" class="share-stop" tabindex="-1">共有を停止</button>
+    <button type="button" class="share-hide" tabindex="-1">非表示</button>
+  </div>
 </section>
 
 <section id="result" class="screen" hidden>

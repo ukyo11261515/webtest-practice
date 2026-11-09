@@ -508,6 +508,7 @@ function renderTab() {
   const cur = session.cur;
   const q = cur.unit.qs[cur.tab];
   const before = session.units.slice(0, session.unitIndex).reduce((s, u) => s + u.qs.length, 0);
+  // 画面には出さない（本番にない表示のため）。テストで今の位置を確かめるために中身だけ入れておく。
   $("q-progress").textContent = `${before + cur.tab + 1} / ${session.questions.length}　${DATA.types[q.type].label}`;
   $("q-instr").textContent = instrFor(q);
 
