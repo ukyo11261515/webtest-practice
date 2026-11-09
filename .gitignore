@@ -1,0 +1,21 @@
+# 秘密（鍵・トークン）。見本の .env.example だけは commit してよい
+.env*
+!.env.example
+*.pem
+*.p12
+*.key
+# 会話の全文（99_AI-history）は commit しない
+99_AI-history/
+# 依存とビルドの成果物
+node_modules/
+.next/
+dist/
+!build/build_data.py
+__pycache__/
+.venv/
+# macOS
+.DS_Store
+
+# 平文の問題と元の Excel は commit しない（site/data.enc.json の暗号文だけを公開する）
+out/
+*.xlsx
