@@ -22,7 +22,7 @@ def elapsed(page):
     return float(re.match(r"([\d.]+) 秒", page.inner_text("#timer-sec")).group(1))
 
 
-def setup(page, types, mode="exam", order="source", count="0", seconds=None, start="first"):
+def setup(page, types, mode="exam", order="source", count="0", seconds=None):
     page.click("#types-none")
     for t in types:
         page.click(f'#type-chips [data-type="{t}"]')
@@ -34,8 +34,6 @@ def setup(page, types, mode="exam", order="source", count="0", seconds=None, sta
             box.dispatch_event("change")
     page.click(f'#mode-seg [data-mode="{mode}"]')
     page.click(f'#order-seg [data-order="{order}"]')
-    if order == "source":
-        page.click(f'#start-seg [data-start="{start}"]')
     page.click(f'#count-seg [data-count="{count}"]')
     page.click('#filter-seg [data-filter="all"]')
     page.check("#opt-auto")
@@ -61,11 +59,24 @@ def main():
         page.click("#lock-form button")
         expect(page.locator("#home")).to_be_visible(timeout=20000)
         print("OK 違うパスワードでは開かず、正しいパスワードで開いた。", page.inner_text("#start-info"))
-        assert "on" in page.locator('#order-seg [data-order="source"]').get_attribute("class"), "並び順の既定は問題集の順"
-        page.fill("#count-input", "7")
+        assert "on" in page.locator('#order-seg [data-order="random"]').get_attribute("class"), "タイプの中の選び方の既定はランダム"
+        page.fill("#count-input", "20")
         page.dispatch_event("#count-input", "change")
-        assert page.inner_text("#start-info").startswith("7 問"), page.inner_text("#start-info")
-        print("OK 並び順の既定は問題集の順。問題数は数字でも入れられる:", page.inner_text("#start-info"))
+        info = page.inner_text("#start-info")
+        assert info.startswith("20 問") and "熟語の意味 3・語句の用法 3・二語の関係 3・二語の関係（組み合わせ） 2・空欄補充（短文） 2・空欄補充（文章） 2・文の並べ替え 2・長文読解 3" in info, info
+        print("OK タイプの中はランダムが既定。20問を8タイプに均等に配分:", info.replace("\n", " "))
+
+        # タイプの順は本番どおりに固定され、タイプの中はランダムに選ばれる
+        order_ok = page.evaluate("""() => {
+          const keys = Object.keys(DATA.types);
+          const idx = lastPreview.map((q) => keys.indexOf(q.type));
+          return idx.every((v, i) => i === 0 || idx[i - 1] <= v);
+        }""")
+        assert order_ok, "タイプの順が本番どおりでない"
+        rows = [page.evaluate("buildSet(pool()).questions.filter(q => q.type === 'meaning').map(q => q.row).join(',')") for _ in range(3)]
+        first3 = page.evaluate("DATA.questions.filter(q => q.type === 'meaning' && q.scored).slice(0, 3).map(q => q.row).join(',')")
+        assert len(set(rows)) > 1 and rows[0] != first3, (rows, first3)
+        print(f"OK タイプの順は固定、熟語の意味の3問は毎回ランダムに選ばれる（例: 行 {rows[0]} / {rows[1]}）")
 
         # 2. 熟語の意味、10問、本番、制限3秒
         setup(page, ["meaning"], count="10", seconds=3)
@@ -113,11 +124,16 @@ def main():
         print("OK 結果:", page.inner_text("#r-score").replace("\n", " "), "／ 1問ずつ解説が開いた状態で並び、時間切れだけに絞れる")
         page.screenshot(path=str(SHOTS / "1b_result.png"), full_page=True)
         page.click("#r-home")
-        assert not page.locator('#start-seg [data-start="resume"]').is_disabled()
-        page.click('#type-chips [data-type="meaning"]') if "on" not in page.locator('#type-chips [data-type="meaning"]').get_attribute("class") else None
-        page.click('#start-seg [data-start="resume"]')
-        assert "4〜" in page.inner_text("#start-info"), page.inner_text("#start-info")
-        print("OK 前回の続きから（3問解いたので4問目から）:", page.inner_text("#start-info"))
+        page.click('#order-seg [data-order="source"]')
+        nxt = page.evaluate("lastPreview[0].row")
+        fourth = page.evaluate("DATA.questions.filter(q => q.type === 'meaning' && q.scored)[3].row")
+        assert nxt == fourth, (nxt, fourth)
+        assert "熟語の意味" in page.inner_text("#resume-info")
+        print(f"OK 問題集の順では、タイプごとに前回の続きから（3問解いたので4問目、行 {nxt} から）")
+        page.click("#resume-reset")
+        first = page.evaluate("DATA.questions.filter(q => q.type === 'meaning' && q.scored)[0].row")
+        assert page.evaluate("lastPreview[0].row") == first
+        print("OK 最初からに戻すで、1問目から出る")
 
         # 3. 長文（3問組）: タブで切り替え、練習モードで解説
         setup(page, ["reading"], mode="practice")
@@ -217,26 +233,21 @@ def main():
         m.screenshot(path=str(SHOTS / "9_mobile_result.png"), full_page=True)
         print(f"OK スマートフォンの結果画面は、URL を含む解説でも横にはみ出さない（幅 {sw}px）")
 
-        # 10. 前回の続きは種類ごと。解き直しでは巻き戻らない
+        # 10. 解き直しでは続きの位置が巻き戻らない
         m.click("#r-home")
-        key_usage = m.evaluate("resumeKey()")
-        row_usage = m.evaluate("resumeRow()")
-        m.click("#types-none")
-        m.click('#type-chips [data-type="meaning"]')
-        assert m.evaluate("resumeRow()") == 0 and m.locator('#start-seg [data-start="resume"]').is_disabled()
-        m.click("#types-none")
-        m.click('#type-chips [data-type="usage"]')
-        assert m.evaluate("resumeRow()") == row_usage
+        row_usage = m.evaluate("resumeRow('usage')")
+        assert row_usage > 0
         m.click("#start")
         m.locator("#q-body .opt").nth(5).click()
         m.click("#q-submit")
         m.click("#quit")
-        before = m.evaluate("resumeRow()")
-        if m.locator("#r-retry-wrong").is_enabled():
+        before = m.evaluate("resumeRow('usage')")
+        retried = m.locator("#r-retry-wrong").is_enabled()
+        if retried:
             m.click("#r-retry-wrong")
             m.click("#quit")
-            assert m.evaluate("resumeRow()") == before, (before, m.evaluate("resumeRow()"))
-        print(f"OK 前回の続きは種類ごとに記録（用法 {row_usage} 行目まで、熟語の意味は未記録）。解き直しでは巻き戻らない")
+            assert m.evaluate("resumeRow('usage')") == before, (before, m.evaluate("resumeRow('usage')"))
+        print(f"OK 用法の続きの位置 {row_usage}→{before} 行目。解き直し（{'実施' if retried else '不正解なしで未実施'}）では巻き戻らない")
 
         # 11. 問題数の欄を空にしても1問にならない
         m.click("#r-home")

@@ -125,14 +125,14 @@ $("logout").addEventListener("click", () => {
 });
 
 // ---- 設定 ----
-const SETTINGS_VERSION = 2;
+const SETTINGS_VERSION = 3;
 
 function defaultSettings() {
   const seconds = {};
   for (const [k, t] of Object.entries(DATA.types)) seconds[k] = t.seconds;
   return {
     v: SETTINGS_VERSION, seconds, types: Object.keys(DATA.types), filter: "all", count: 20,
-    order: "source", start: "first", startNumber: 1, resume: {}, mode: "exam", auto: true, sound: true,
+    order: "random", resume: {}, mode: "exam", auto: true, sound: true,
   };
 }
 
@@ -140,10 +140,11 @@ function loadSettings() {
   const d = defaultSettings();
   const s = store.get(KEY_SETTINGS, {});
   const merged = { ...d, ...s, seconds: { ...d.seconds, ...(s.seconds || {}) } };
-  // 2026-11-09: 並び順の既定を問題集の順に変えた。古い設定（ランダム）は一度だけ問題集の順に戻す。
-  if (s.v !== SETTINGS_VERSION) { merged.order = "source"; merged.v = SETTINGS_VERSION; }
+  // 2026-11-09: タイプの順を本番どおりに固定し、タイプの中の選び方の既定をランダムにした（版3）。
+  // それより前の設定は、選び方と続きの位置を一度だけ新しい既定に戻す。
+  if (s.v !== SETTINGS_VERSION) { merged.order = "random"; merged.resume = {}; merged.v = SETTINGS_VERSION; }
   if (!merged.resume || typeof merged.resume !== "object") merged.resume = {};
-  delete merged.resumeRow;
+  for (const k of ["resumeRow", "start", "startNumber"]) delete merged[k];
   return merged;
 }
 
@@ -153,9 +154,9 @@ function saveSettings() { store.set(KEY_SETTINGS, settings); }
 
 function history() { return store.get(KEY_HISTORY, {}); }
 
-// 前回の続きの位置は、選んだ種類と絞り込みの組み合わせごとに覚える（種類は問題集の中で混ざって並ぶため）。
-const resumeKey = () => `${[...settings.types].sort().join(",")}|${settings.filter}`;
-const resumeRow = () => settings.resume[resumeKey()] || 0;
+// 問題集の順のときの続きの位置は、タイプと絞り込みの組み合わせごとに覚える。
+const resumeKey = (type) => `${type}|${settings.filter}`;
+const resumeRow = (type) => settings.resume[resumeKey(type)] || 0;
 
 const scoredOf = (k) => DATA.questions.filter((q) => q.type === k && q.scored);
 
@@ -217,7 +218,6 @@ function paintSeg(id, attr, value) {
 
 bindSeg("count-seg", "count", "count", Number);
 bindSeg("order-seg", "order", "order");
-bindSeg("start-seg", "start", "start");
 bindSeg("filter-seg", "filter", "filter");
 bindSeg("mode-seg", "mode", "mode");
 $("count-input").addEventListener("change", (e) => {
@@ -225,8 +225,8 @@ $("count-input").addEventListener("change", (e) => {
   if (Number.isFinite(v) && v >= 1) { settings.count = Math.min(999, v); saveSettings(); }
   refreshHome(); // 空や0のときは、今の設定の表示に戻す
 });
-$("start-number").addEventListener("change", (e) => {
-  settings.startNumber = Math.max(1, Math.round(Number(e.target.value) || 1));
+$("resume-reset").addEventListener("click", () => {
+  for (const k of Object.keys(DATA.types)) delete settings.resume[resumeKey(k)];
   saveSettings(); refreshHome();
 });
 $("opt-auto").addEventListener("change", (e) => { settings.auto = e.target.checked; saveSettings(); });
@@ -246,15 +246,14 @@ function refreshHome() {
   paintSeg("count-seg", "count", [10, 20, 30, 50, 0].includes(settings.count) ? settings.count : "custom");
   $("count-input").value = [10, 20, 30, 50, 0].includes(settings.count) ? "" : settings.count;
   paintSeg("order-seg", "order", settings.order);
-  paintSeg("start-seg", "start", settings.start);
   paintSeg("filter-seg", "filter", settings.filter);
   paintSeg("mode-seg", "mode", settings.mode);
-  $("start-block").hidden = settings.order !== "source";
-  $("start-number-wrap").hidden = settings.start !== "number";
-  $("start-number").value = settings.startNumber;
-  const resumeBtn = $("start-seg").querySelector('[data-start="resume"]');
-  resumeBtn.disabled = !resumeRow();
-  if (!resumeRow() && settings.start === "resume") paintSeg("start-seg", "start", "first");
+  $("resume-block").hidden = settings.order !== "source";
+  const started = settings.types.filter((k) => resumeRow(k));
+  $("resume-info").textContent = started.length
+    ? `続きの位置を覚えているタイプ: ${started.map((k) => DATA.types[k].label).join("、")}`
+    : "どのタイプも最初から出します。";
+  $("resume-reset").disabled = !started.length;
   updateStartInfo();
 }
 
@@ -268,42 +267,76 @@ function pool() {
   });
 }
 
-// 問題集の順のときに、何番目から出すか（0 始まり）
-function startIndex(qs) {
-  if (settings.order !== "source" || !qs.length) return 0;
-  let i = 0;
-  if (settings.start === "number") i = Math.min(qs.length - 1, Math.max(0, settings.startNumber - 1));
-  if (settings.start === "resume" && resumeRow()) {
-    i = qs.findIndex((q) => q.row > resumeRow());
-    if (i < 0) i = 0; // 最後まで解き終えていたら最初に戻る
-  }
-  // 長文の組の途中から始まらないように、組の先頭まで戻す。
-  while (i > 0 && qs[i].group && qs[i - 1].group === qs[i].group) i--;
-  return i;
-}
-
 function shuffle(a) {
   for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
   return a;
 }
 
-// 長文の3問組は、ばらさずに続けて出す。
-function buildSet(qs) {
-  const from = startIndex(qs);
-  const ordered = qs.slice(from);
+// 長文の3問組は1つのまとまり（unit）として扱い、ばらさない。
+function unitsOf(qs) {
   const units = [];
   const byGroup = new Map();
-  for (const q of ordered) {
+  for (const q of qs) {
     if (q.group) {
       if (!byGroup.has(q.group)) { byGroup.set(q.group, []); units.push(byGroup.get(q.group)); }
       byGroup.get(q.group).push(q);
     } else units.push([q]);
   }
-  if (settings.order === "random") shuffle(units);
+  return units;
+}
+
+// タイプは本番と同じ順（DATA.types の順）に固定し、各タイプの中から問題を選ぶ。
+// 問題数は選んだタイプに均等に分け、余りは前のタイプから1問ずつ足す。問題が足りないタイプの分は他へ回す。
+function buildSet(qs) {
+  const types = Object.keys(DATA.types).filter((k) => settings.types.includes(k));
+  const plan = types.map((k) => {
+    let units = unitsOf(qs.filter((q) => q.type === k));
+    if (settings.order === "random") shuffle(units);
+    else {
+      const i = units.findIndex((u) => u[0].row > resumeRow(k));
+      if (i > 0) units = [...units.slice(i), ...units.slice(0, i)]; // 続きから。最後まで解いたら最初に戻る
+    }
+    return { k, units, avail: units.reduce((s, u) => s + u.length, 0), want: 0 };
+  }).filter((p) => p.avail);
+
+  // 配分: まず問題数で均等に分ける（余りは前のタイプから。足りないタイプの分は他へ回す）。
+  // 長文のような組のタイプは近い組の数に丸め（1組以上）、ずれた分は1問ずつのタイプで増減して合計をそろえる。
+  for (const p of plan) { p.want = 0; p.grouped = p.units.some((u) => u.length > 1); }
+  if (!settings.count) for (const p of plan) p.taken = p.units.length;
+  else {
+    let left = settings.count;
+    while (left > 0 && plan.some((p) => p.want < p.avail)) {
+      for (const p of plan) { if (left > 0 && p.want < p.avail) { p.want++; left--; } }
+    }
+    for (const p of plan) {
+      if (!p.grouped) { p.taken = p.want; continue; }
+      const size = p.avail / p.units.length;
+      p.taken = p.want ? Math.min(p.units.length, Math.max(1, Math.round(p.want / size))) : 0;
+    }
+    const total = () => plan.reduce((s, p) => s + p.units.slice(0, p.taken).flat().length, 0);
+    const singles = plan.filter((p) => !p.grouped);
+    let diff = total() - settings.count;
+    while (diff > 0) {
+      // 減らすのは問題数の多いタイプから。同じ数なら後ろのタイプから（本番で先に出るタイプを残す）。
+      const p = singles.filter((x) => x.taken > 1).sort((x, y) => y.taken - x.taken || plan.indexOf(y) - plan.indexOf(x))[0];
+      if (!p) break;
+      p.taken--; diff--;
+    }
+    while (diff < 0) {
+      const p = singles.filter((x) => x.taken < x.units.length).sort((x, y) => x.taken - y.taken)[0];
+      if (!p) break;
+      p.taken++; diff++;
+    }
+  }
+
   const out = [];
-  const limit = settings.count || Infinity;
-  for (const u of units) { if (out.length >= limit) break; out.push(...u); }
-  return { questions: out, from };
+  const breakdown = [];
+  for (const p of plan) {
+    const picked = p.units.slice(0, p.taken).flat();
+    out.push(...picked);
+    if (picked.length) breakdown.push({ k: p.k, n: picked.length });
+  }
+  return { questions: out, breakdown };
 }
 
 let lastPreview = [];
@@ -318,9 +351,9 @@ function updateStartInfo() {
   lastPreview = preview.questions;
   const m = preview.questions.length;
   const secs = preview.questions.reduce((s, q) => s + settings.seconds[q.type], 0);
-  const where = settings.order === "source" ? `${preview.from + 1}〜${preview.from + m} 問目` : "ランダム";
   const min = secs >= 60 ? `最大 ${Math.floor(secs / 60)}分${secs % 60 ? `${secs % 60}秒` : ""}` : `最大 ${secs}秒`;
-  info.replaceChildren(el("b", { text: `${m} 問` }), `（対象 ${n} 問中 ${where}）・${min}`);
+  const parts = preview.breakdown.map((b) => `${DATA.types[b.k].label} ${b.n}`).join("・");
+  info.replaceChildren(el("b", { text: `${m} 問` }), `・${min}`, el("br"), el("span", { class: "start-breakdown", text: parts }));
   $("start").disabled = false;
 }
 
@@ -832,7 +865,9 @@ let resultFilter = "all";
 function finish() {
   const rs = session.results;
   if (settings.order === "source" && rs.length && !session.retry) {
-    settings.resume[resumeKey()] = Math.max(...rs.map((r) => r.q.row));
+    for (const k of new Set(rs.map((r) => r.q.type))) {
+      settings.resume[resumeKey(k)] = Math.max(...rs.filter((r) => r.q.type === k).map((r) => r.q.row));
+    }
     saveSettings();
   }
   show("result");

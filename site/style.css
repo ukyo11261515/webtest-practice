@@ -142,7 +142,9 @@ button.link { border: none; background: none; color: var(--accent); padding: 4px
 .seg button.on { background: var(--accent); color: #fff; font-weight: 700; }
 .seg button:disabled { color: #aab; background: #f6f7f9; }
 .inline-num { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 14px; color: var(--muted); }
-#start-block { margin-top: 10px; }
+.card-note { font-size: 13px; color: var(--muted); margin: -4px 0 10px; }
+.resume-block { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }
+.start-breakdown { font-size: 12px; color: var(--muted); }
 .field { margin-bottom: 12px; }
 .field-label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
 .start-bar.sticky { position: sticky; bottom: 0; background: rgba(244,245,247,.96); padding: 10px 0; margin-top: 4px; backdrop-filter: blur(4px); z-index: 4; }
