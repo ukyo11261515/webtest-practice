@@ -447,6 +447,7 @@ function choose(key) {
   cur.answers[cur.tab] = a;
   cur.touched[cur.tab] = a.length > 0;
   paintChoices(q);
+  updateDonut(timer ? performance.now() - timer.t0 : 0);
 }
 
 function renderOrder(q) {
@@ -525,7 +526,10 @@ function paintMeter(ratio) {
 
 function updateDonut(unitElapsed) {
   const t = session.totalMs ? Math.min(1, (session.usedMs + unitElapsed) / session.totalMs) : 0;
-  const a = session.questions.length ? session.answered / session.questions.length : 0;
+  // 回答状況: 確定した問題に加えて、組問題の中ですでに答えた問題も数える。
+  const cur = session.cur;
+  const inUnit = cur && !cur.done && cur.unit.qs.length > 1 ? cur.touched.filter(Boolean).length : 0;
+  const a = session.questions.length ? (session.answered + inUnit) / session.questions.length : 0;
   $("ring-time").style.strokeDasharray = `${t * 100} 100`;
   $("ring-answered").style.strokeDasharray = `${a * 100} 100`;
 }
