@@ -140,7 +140,6 @@ button.link { border: none; background: none; color: var(--accent); padding: 4px
 .seg button { border: none; border-right: 1px solid #c9ced6; border-radius: 0; padding: 8px 16px; background: #fff; font-size: 15px; }
 .seg button:last-child { border-right: none; }
 .seg button.on { background: var(--accent); color: #fff; font-weight: 700; }
-.seg button:disabled { color: #aab; background: #f6f7f9; }
 .inline-num { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 14px; color: var(--muted); }
 .card-note { font-size: 13px; color: var(--muted); margin: -4px 0 10px; }
 .resume-block { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }

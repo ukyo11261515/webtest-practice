@@ -142,7 +142,12 @@ function loadSettings() {
   const merged = { ...d, ...s, seconds: { ...d.seconds, ...(s.seconds || {}) } };
   // 2026-11-09: タイプの順を本番どおりに固定し、タイプの中の選び方の既定をランダムにした（版3）。
   // それより前の設定は、選び方と続きの位置を一度だけ新しい既定に戻す。
-  if (s.v !== SETTINGS_VERSION) { merged.order = "random"; merged.resume = {}; merged.v = SETTINGS_VERSION; }
+  if (s.v !== SETTINGS_VERSION) {
+    merged.order = "random";
+    merged.v = SETTINGS_VERSION;
+    // 版2はタイプの組み合わせごとに覚えていた。1タイプだけの位置は新しい形と同じなので残す。
+    merged.resume = Object.fromEntries(Object.entries(merged.resume || {}).filter(([k]) => !k.split("|")[0].includes(",")));
+  }
   if (!merged.resume || typeof merged.resume !== "object") merged.resume = {};
   for (const k of ["resumeRow", "start", "startNumber"]) delete merged[k];
   return merged;
@@ -226,7 +231,7 @@ $("count-input").addEventListener("change", (e) => {
   refreshHome(); // 空や0のときは、今の設定の表示に戻す
 });
 $("resume-reset").addEventListener("click", () => {
-  for (const k of Object.keys(DATA.types)) delete settings.resume[resumeKey(k)];
+  for (const k of settings.types) delete settings.resume[resumeKey(k)];
   saveSettings(); refreshHome();
 });
 $("opt-auto").addEventListener("change", (e) => { settings.auto = e.target.checked; saveSettings(); });
@@ -326,6 +331,12 @@ function buildSet(qs) {
       const p = singles.filter((x) => x.taken < x.units.length).sort((x, y) => x.taken - y.taken)[0];
       if (!p) break;
       p.taken++; diff++;
+    }
+    // 1問ずつのタイプが尽きても足りなければ、組のタイプに組を1つずつ足す（数問超えることがある）。
+    while (diff < 0) {
+      const p = plan.filter((x) => x.grouped && x.taken < x.units.length)[0];
+      if (!p) break;
+      diff += p.units[p.taken].length; p.taken++;
     }
   }
 
@@ -865,8 +876,9 @@ let resultFilter = "all";
 function finish() {
   const rs = session.results;
   if (settings.order === "source" && rs.length && !session.retry) {
+    // タイプごとに、出した順で最後に解いた問題の行を覚える（末尾から先頭へ折り返した回でも正しく続く）。
     for (const k of new Set(rs.map((r) => r.q.type))) {
-      settings.resume[resumeKey(k)] = Math.max(...rs.filter((r) => r.q.type === k).map((r) => r.q.row));
+      settings.resume[resumeKey(k)] = [...rs].reverse().find((r) => r.q.type === k).q.row;
     }
     saveSettings();
   }
