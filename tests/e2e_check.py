@@ -201,6 +201,50 @@ def main():
         assert m.locator(".spi-next").is_visible() and m.locator(".spi-timer").is_visible()
         m.screenshot(path=str(SHOTS / "8_mobile.png"))
         print(f"OK スマートフォンの幅で横にはみ出さず（幅 {sw}px）、回答時間と次へが下に固定")
+        m.click("#quit")
+        m.click("#r-home")
+
+        # 9. スマートフォンの結果画面: URL を含む解説（用法の3問目）でも横にはみ出さない
+        setup(m, ["usage"], count="10")
+        for _ in range(3):
+            m.locator("#q-body .opt").first.click()
+            m.click("#q-submit")
+        m.click("#quit")
+        expect(m.locator("#result")).to_be_visible()
+        assert m.locator("#r-list .rv-explain", has_text="http").count() >= 1, "URL を含む解説が対象に入っていない"
+        sw = m.evaluate("document.documentElement.scrollWidth")
+        assert sw <= 390, sw
+        m.screenshot(path=str(SHOTS / "9_mobile_result.png"), full_page=True)
+        print(f"OK スマートフォンの結果画面は、URL を含む解説でも横にはみ出さない（幅 {sw}px）")
+
+        # 10. 前回の続きは種類ごと。解き直しでは巻き戻らない
+        m.click("#r-home")
+        key_usage = m.evaluate("resumeKey()")
+        row_usage = m.evaluate("resumeRow()")
+        m.click("#types-none")
+        m.click('#type-chips [data-type="meaning"]')
+        assert m.evaluate("resumeRow()") == 0 and m.locator('#start-seg [data-start="resume"]').is_disabled()
+        m.click("#types-none")
+        m.click('#type-chips [data-type="usage"]')
+        assert m.evaluate("resumeRow()") == row_usage
+        m.click("#start")
+        m.locator("#q-body .opt").nth(5).click()
+        m.click("#q-submit")
+        m.click("#quit")
+        before = m.evaluate("resumeRow()")
+        if m.locator("#r-retry-wrong").is_enabled():
+            m.click("#r-retry-wrong")
+            m.click("#quit")
+            assert m.evaluate("resumeRow()") == before, (before, m.evaluate("resumeRow()"))
+        print(f"OK 前回の続きは種類ごとに記録（用法 {row_usage} 行目まで、熟語の意味は未記録）。解き直しでは巻き戻らない")
+
+        # 11. 問題数の欄を空にしても1問にならない
+        m.click("#r-home")
+        m.click('#count-seg [data-count="20"]')
+        m.fill("#count-input", "")
+        m.dispatch_event("#count-input", "change")
+        assert m.evaluate("settings.count") == 20
+        print("OK 問題数の欄を空にしても設定は変わらない")
 
         assert not errors, errors
         print("OK ページのエラー 0 件")

@@ -38,7 +38,6 @@ button.link { border: none; background: none; color: var(--accent); padding: 4px
 .check { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
 .row-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 
-
 .start-bar { display: flex; justify-content: flex-end; align-items: center; gap: 16px; margin-top: 8px; }
 
 /* 出題画面（テストセンターの画面に寄せる） */
@@ -117,15 +116,7 @@ button.link { border: none; background: none; color: var(--accent); padding: 4px
 .slot.filled { border-style: solid; border-color: #6a3df0; color: #6a3df0; }
 .text-answer { font: inherit; font-size: 17px; padding: 6px 10px; border: 1px solid #777; width: min(300px, 100%); }
 
-.feedback .fb-item { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
-.feedback .fb-item:first-child { border-top: none; margin-top: 0; padding-top: 0; }
-.feedback .fb-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
-.verdict { font-size: 20px; font-weight: 700; }
-.verdict.ok { color: var(--ok); }
-.verdict.ng { color: var(--ng); }
-.verdict.na { color: var(--warn); }
-.note { background: #fff7e6; border: 1px solid #f3d9a4; border-radius: 8px; padding: 8px 12px; font-size: 14px; margin: 8px 0; }
-.explain { white-space: pre-wrap; font-size: 14.5px; color: #374151; background: #f7f8fa; border-radius: 8px; padding: 10px 12px; }
+.note { overflow-wrap: anywhere; background: #fff7e6; border: 1px solid #f3d9a4; border-radius: 8px; padding: 8px 12px; font-size: 14px; margin: 8px 0; }
 
 /* 最初の画面 */
 .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
@@ -172,8 +163,9 @@ button.link { border: none; background: none; color: var(--accent); padding: 4px
 .tr-time { font-size: 12.5px; text-align: right; }
 .review-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
 .review-head h2 { margin: 0; }
-.review-list { display: grid; gap: 12px; }
-.rv { background: #fff; border: 1px solid var(--line); border-left: 5px solid #c9ced6; border-radius: 10px; padding: 14px 18px; }
+.review-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.fb-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
+.rv { min-width: 0; overflow-wrap: anywhere; background: #fff; border: 1px solid var(--line); border-left: 5px solid #c9ced6; border-radius: 10px; padding: 14px 18px; }
 .rv-ok { border-left-color: var(--ok); }
 .rv-ng { border-left-color: var(--ng); }
 .rv-na { border-left-color: var(--warn); }

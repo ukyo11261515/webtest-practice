@@ -132,7 +132,7 @@ function defaultSettings() {
   for (const [k, t] of Object.entries(DATA.types)) seconds[k] = t.seconds;
   return {
     v: SETTINGS_VERSION, seconds, types: Object.keys(DATA.types), filter: "all", count: 20,
-    order: "source", start: "first", startNumber: 1, resumeRow: 0, mode: "exam", auto: true, sound: true,
+    order: "source", start: "first", startNumber: 1, resume: {}, mode: "exam", auto: true, sound: true,
   };
 }
 
@@ -142,6 +142,8 @@ function loadSettings() {
   const merged = { ...d, ...s, seconds: { ...d.seconds, ...(s.seconds || {}) } };
   // 2026-11-09: 並び順の既定を問題集の順に変えた。古い設定（ランダム）は一度だけ問題集の順に戻す。
   if (s.v !== SETTINGS_VERSION) { merged.order = "source"; merged.v = SETTINGS_VERSION; }
+  if (!merged.resume || typeof merged.resume !== "object") merged.resume = {};
+  delete merged.resumeRow;
   return merged;
 }
 
@@ -150,6 +152,10 @@ let settings = null;
 function saveSettings() { store.set(KEY_SETTINGS, settings); }
 
 function history() { return store.get(KEY_HISTORY, {}); }
+
+// 前回の続きの位置は、選んだ種類と絞り込みの組み合わせごとに覚える（種類は問題集の中で混ざって並ぶため）。
+const resumeKey = () => `${[...settings.types].sort().join(",")}|${settings.filter}`;
+const resumeRow = () => settings.resume[resumeKey()] || 0;
 
 const scoredOf = (k) => DATA.questions.filter((q) => q.type === k && q.scored);
 
@@ -215,8 +221,9 @@ bindSeg("start-seg", "start", "start");
 bindSeg("filter-seg", "filter", "filter");
 bindSeg("mode-seg", "mode", "mode");
 $("count-input").addEventListener("change", (e) => {
-  const v = Math.max(1, Math.min(999, Math.round(Number(e.target.value) || 0)));
-  if (v) { settings.count = v; saveSettings(); refreshHome(); }
+  const v = Math.round(Number(e.target.value));
+  if (Number.isFinite(v) && v >= 1) { settings.count = Math.min(999, v); saveSettings(); }
+  refreshHome(); // 空や0のときは、今の設定の表示に戻す
 });
 $("start-number").addEventListener("change", (e) => {
   settings.startNumber = Math.max(1, Math.round(Number(e.target.value) || 1));
@@ -246,8 +253,8 @@ function refreshHome() {
   $("start-number-wrap").hidden = settings.start !== "number";
   $("start-number").value = settings.startNumber;
   const resumeBtn = $("start-seg").querySelector('[data-start="resume"]');
-  resumeBtn.disabled = !settings.resumeRow;
-  if (!settings.resumeRow && settings.start === "resume") paintSeg("start-seg", "start", "first");
+  resumeBtn.disabled = !resumeRow();
+  if (!resumeRow() && settings.start === "resume") paintSeg("start-seg", "start", "first");
   updateStartInfo();
 }
 
@@ -266,8 +273,8 @@ function startIndex(qs) {
   if (settings.order !== "source" || !qs.length) return 0;
   let i = 0;
   if (settings.start === "number") i = Math.min(qs.length - 1, Math.max(0, settings.startNumber - 1));
-  if (settings.start === "resume" && settings.resumeRow) {
-    i = qs.findIndex((q) => q.row > settings.resumeRow);
+  if (settings.start === "resume" && resumeRow()) {
+    i = qs.findIndex((q) => q.row > resumeRow());
     if (i < 0) i = 0; // 最後まで解き終えていたら最初に戻る
   }
   // 長文の組の途中から始まらないように、組の先頭まで戻す。
@@ -299,6 +306,8 @@ function buildSet(qs) {
   return { questions: out, from };
 }
 
+let lastPreview = [];
+
 function updateStartInfo() {
   const qs = pool();
   const n = qs.length;
@@ -306,6 +315,7 @@ function updateStartInfo() {
   if (!settings.types.length) { info.textContent = "問題タイプを1つ以上選んでください"; $("start").disabled = true; return; }
   if (!n) { info.textContent = "条件に合う問題がありません"; $("start").disabled = true; return; }
   const preview = buildSet(qs);
+  lastPreview = preview.questions;
   const m = preview.questions.length;
   const secs = preview.questions.reduce((s, q) => s + settings.seconds[q.type], 0);
   const where = settings.order === "source" ? `${preview.from + 1}〜${preview.from + m} 問目` : "ランダム";
@@ -314,7 +324,7 @@ function updateStartInfo() {
   $("start").disabled = false;
 }
 
-$("start").addEventListener("click", () => startQuiz(buildSet(pool()).questions));
+$("start").addEventListener("click", () => startQuiz(lastPreview.length ? lastPreview : buildSet(pool()).questions));
 
 // ---- 出題（テストセンターの画面に寄せる） ----
 const INSTR = {
@@ -400,7 +410,7 @@ function commonWord(text, opts) {
 
 let session = null;
 
-function startQuiz(questions) {
+function startQuiz(questions, retry = false) {
   if (!questions.length) return;
   // 同じ本文の組問題（続けて並ぶ）は、1つの画面にまとめてタブで切り替える。
   const units = [];
@@ -412,7 +422,7 @@ function startQuiz(questions) {
   const limitOf = (q) => (settings.seconds[q.type] || DATA.types[q.type].seconds) * 1000;
   for (const u of units) u.limitMs = u.qs.reduce((s, q) => s + limitOf(q), 0);
   session = {
-    questions, units, unitIndex: 0, results: [], answered: 0, usedMs: 0,
+    questions, units, unitIndex: 0, results: [], answered: 0, usedMs: 0, retry,
     totalMs: units.reduce((s, u) => s + u.limitMs, 0),
   };
   show("quiz");
@@ -821,8 +831,8 @@ let resultFilter = "all";
 
 function finish() {
   const rs = session.results;
-  if (settings.order === "source" && rs.length) {
-    settings.resumeRow = Math.max(...rs.map((r) => r.q.row));
+  if (settings.order === "source" && rs.length && !session.retry) {
+    settings.resume[resumeKey()] = Math.max(...rs.map((r) => r.q.row));
     saveSettings();
   }
   show("result");
@@ -872,7 +882,7 @@ for (const b of $("r-filter").querySelectorAll("button")) {
 $("r-home").addEventListener("click", () => { initHome(); show("home"); });
 $("r-retry-wrong").addEventListener("click", () => {
   const wrong = session.results.filter((r) => r.ok === false).map((r) => r.q);
-  startQuiz(wrong);
+  startQuiz(wrong, true);
 });
 
 // ---- 起動 ----
