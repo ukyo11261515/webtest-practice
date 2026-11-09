@@ -42,7 +42,7 @@ def test_kana_combo_including_none():
     assert q["type"] == "pair_combo" and q["mode"] == "multi"
     assert q["accepted"] == [["ア", "ウ"]]
     q2 = one("甲；乙", "ア 丙；丁\nイ 戊；己\nウ 庚；辛", "該当なし")
-    assert q2["accepted"] == [[]]
+    assert not q2["scored"]
 
 
 def test_ai_disagreement_accepts_both_and_notes_it():

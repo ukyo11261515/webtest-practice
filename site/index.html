@@ -80,36 +80,51 @@
 </section>
 
 <section id="quiz" class="screen" hidden>
-  <div class="quiz-head">
-    <div class="quiz-meta">
-      <span id="q-progress"></span>
-      <span id="q-type" class="tag"></span>
-      <button id="quit" class="link">やめて結果を見る</button>
+  <div class="quiz-top">
+    <span id="q-progress"></span>
+    <button id="quit" class="link">やめて結果を見る</button>
+  </div>
+
+  <div class="spi">
+    <div class="spi-instr" id="q-instr"></div>
+    <div class="spi-status">
+      <svg id="donut" class="donut" viewBox="0 0 100 100" aria-label="時間と回答状況">
+        <circle cx="50" cy="50" r="40" class="ring-track-outer"/>
+        <circle cx="50" cy="50" r="40" class="ring-outer" id="ring-time" pathLength="100"/>
+        <circle cx="50" cy="50" r="27" class="ring-track-inner"/>
+        <circle cx="50" cy="50" r="27" class="ring-inner" id="ring-answered" pathLength="100"/>
+        <circle cx="50" cy="50" r="19" class="ring-hole"/>
+      </svg>
+      <div class="donut-labels"><span>時間</span><span>回答状況</span></div>
     </div>
-    <div id="bomb" class="bomb" aria-live="off">
-      <div class="bomb-led"></div>
-      <div class="bomb-face">
-        <div class="bomb-label">残り</div>
-        <div id="bomb-digits" class="bomb-digits">00.0</div>
+
+    <div class="spi-left">
+      <div id="q-group-badge" class="group-badge" hidden></div>
+      <div id="q-passage" class="spi-passage"></div>
+      <div id="q-sub" class="spi-sub"></div>
+    </div>
+    <div class="spi-right">
+      <div class="answer-box">
+        <div id="q-prompt" class="spi-prompt"></div>
+        <div id="q-body"></div>
       </div>
-      <div class="bomb-side">
-        <div class="bomb-elapsed-label">表示されてから</div>
-        <div><span id="bomb-elapsed" class="bomb-elapsed">0.0</span> 秒</div>
-        <div id="bomb-limit" class="bomb-limit"></div>
+      <div id="q-tabs" class="tabs" hidden></div>
+    </div>
+
+    <div class="spi-timer">
+      <span class="timer-label">回答時間</span>
+      <div class="timer-track">
+        <div class="timer-marks"><i style="left:50%"></i><i style="left:70%"></i><i style="left:90%"></i></div>
+        <div id="timer-cells" class="timer-cells"></div>
       </div>
-      <div class="bomb-bar"><div id="bomb-fill"></div></div>
+      <span id="timer-sec" class="timer-sec"></span>
+    </div>
+    <div class="spi-next">
+      <button id="q-submit" class="next-btn">次へ</button>
     </div>
   </div>
 
-  <article class="card question">
-    <div id="q-passage" class="passage"></div>
-    <div id="q-prompt" class="prompt"></div>
-    <div id="q-body"></div>
-    <div class="actions">
-      <button id="q-submit" class="primary big">回答して次へ</button>
-    </div>
-    <div id="q-feedback" class="feedback" hidden></div>
-  </article>
+  <div id="q-feedback" class="card feedback" hidden></div>
 </section>
 
 <section id="result" class="screen" hidden>

@@ -244,6 +244,10 @@ def build_questions(rows):
                 if keys not in parsed:
                     parsed.append(keys)
             accepted = parsed
+            # ア・イ・ウの問題は本番どおり A アだけ〜F イとウ の6択で出すため、該当なしは選べない。
+            if kind == "kana" and [] in accepted:
+                notes.append("本番の6択（アだけ〜イとウ）に該当なしがないため、採点しません。")
+                accepted = [a for a in accepted if a]
             multi = kind == "kana" or "すべて選び" in prompt or any(len(a) > 1 for a in accepted)
             mode = "multi" if multi else "single"
             if len(options) < 2:

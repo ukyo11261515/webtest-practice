@@ -4,6 +4,7 @@
 パスワードは .env の WEBTEST_PASSWORD を使う。スクリーンショットは out/shots/ に保存する。
 """
 
+import re
 import sys
 import time
 from pathlib import Path
@@ -17,136 +18,166 @@ SHOTS = ROOT / "out" / "shots"
 SHOTS.mkdir(parents=True, exist_ok=True)
 
 
-def num(text):
-    return float(text.replace("+", ""))
+def elapsed(page):
+    return float(re.match(r"([\d.]+) 秒", page.inner_text("#timer-sec")).group(1))
+
+
+def setup(page, types, mode="exam", order="source", count="0", seconds=None):
+    page.click("#types-none")
+    for t in types:
+        page.check(f'#type-rows input[data-type="{t}"]')
+        if seconds:
+            box = page.locator(f'#type-rows input[type=number][data-type="{t}"]')
+            box.fill(str(seconds))
+            box.dispatch_event("change")
+    page.select_option("#opt-mode", mode)
+    page.select_option("#opt-order", order)
+    page.select_option("#opt-count", count)
+    page.select_option("#opt-filter", "all")
+    page.check("#opt-auto")
+    page.click("#start")
+    expect(page.locator("#quiz")).to_be_visible()
 
 
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 1100, "height": 900})
+        page = browser.new_page(viewport={"width": 1280, "height": 860})
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
 
-        # 1. ロック画面と、違うパスワード
+        # 1. ロック
         page.goto(URL)
-        expect(page.locator("#lock")).to_be_visible()
         page.fill("#lock-pw", "0000")
         page.click("#lock-form button")
         expect(page.locator("#lock-error")).to_have_text("パスワードが違います。", timeout=20000)
-        print("OK 違うパスワードは開かない")
-
-        # 2. 正しいパスワード（記憶するに入れる）
         assert not page.is_checked("#lock-remember")
         page.check("#lock-remember")
         page.fill("#lock-pw", PW)
         page.click("#lock-form button")
         expect(page.locator("#home")).to_be_visible(timeout=20000)
-        rows = page.locator("#type-rows tr").count()
-        print(f"OK 開いた。種類の行 {rows} 行、{page.inner_text('#start-info')}")
-        page.screenshot(path=str(SHOTS / "1_home.png"), full_page=True)
+        print("OK 違うパスワードでは開かず、正しいパスワードで開いた。", page.inner_text("#start-info"))
 
-        # 3. 熟語の意味だけ、10問、本番、制限 3 秒
-        page.click("#types-none")
-        page.check('#type-rows input[data-type="meaning"]')
-        page.fill('#type-rows input[type=number][data-type="meaning"]', "3")
-        page.locator('#type-rows input[type=number][data-type="meaning"]').dispatch_event("change")
-        page.select_option("#opt-count", "10")
-        page.select_option("#opt-mode", "exam")
-        page.check("#opt-auto")
-        page.click("#start")
-        expect(page.locator("#quiz")).to_be_visible()
-        expect(page.locator("#q-progress")).to_have_text("1 / 10")
-
-        # 4. 残りが減り、経過が増える
-        assert num(page.inner_text("#bomb-digits")) > 2.0
+        # 2. 熟語の意味、10問、本番、制限3秒
+        setup(page, ["meaning"], count="10", seconds=3)
+        expect(page.locator("#q-progress")).to_contain_text("1 / 10")
+        assert "下線部" in page.inner_text("#q-instr")
+        assert page.locator("#q-passage .ul").count() == 1, "熟語の意味は本文に下線"
         time.sleep(0.3)
-        r1, e1 = num(page.inner_text("#bomb-digits")), num(page.inner_text("#bomb-elapsed"))
-        time.sleep(1.0)
-        r2, e2 = num(page.inner_text("#bomb-digits")), num(page.inner_text("#bomb-elapsed"))
-        assert r2 < r1 and e2 > e1, (r1, r2, e1, e2)
-        print(f"OK タイマー: 残り {r1}→{r2} 秒、経過 {e1}→{e2} 秒")
-        page.screenshot(path=str(SHOTS / "2_quiz.png"))
+        e1 = elapsed(page)
+        w1 = page.evaluate("document.querySelector('#timer-cells .cell b').style.width")
+        time.sleep(0.8)
+        e2 = elapsed(page)
+        w3 = page.evaluate("[...document.querySelectorAll('#timer-cells .cell b')].map(b => parseFloat(b.style.width) || 0)")
+        assert e2 > e1, (e1, e2)
+        assert w3[0] == 100 and w3[2] > 0 and w3[9] == 0, w3
+        print(f"OK 回答時間のマスが左から塗られ、経過秒数が増える（{e1}→{e2} 秒、1マス目 {w1}→100%）")
+        page.screenshot(path=str(SHOTS / "1_meaning.png"))
 
-        # 5. 選んで回答すると次へ
         page.locator("#q-body .opt").first.click()
+        assert page.locator("#q-body .opt.selected").count() == 1
         page.click("#q-submit")
-        expect(page.locator("#q-progress")).to_have_text("2 / 10")
-        print("OK 回答して次の問題へ進んだ")
+        expect(page.locator("#q-progress")).to_contain_text("2 / 10")
+        print("OK 選んで次へで進んだ")
 
-        # 6. 何もしないと 3 秒で時間切れになり、次へ進む
-        time.sleep(1.4)
-        assert page.locator("#bomb").get_attribute("class").count("danger") == 1, page.locator("#bomb").get_attribute("class")
-        expect(page.locator("#q-progress")).to_have_text("3 / 10", timeout=5000)
-        print("OK 残り3秒で点滅し、時間切れで自動的に次へ進んだ")
+        time.sleep(1.2)
+        last = page.evaluate("parseFloat(document.querySelectorAll('#timer-cells .cell b')[9].style.width) || 0")
+        expect(page.locator("#q-progress")).to_contain_text("3 / 10", timeout=5000)
+        print(f"OK 赤のマスまで進むと自動で次へ進んだ（赤の直前の塗り {last:.0f}%）")
 
-        # 7. Enter の押しっぱなし（キーリピート）では1問しか進まない
         page.keyboard.press("b")
         page.keyboard.down("Enter")
         page.dispatch_event("body", "keydown", {"key": "Enter", "repeat": True})
         page.keyboard.up("Enter")
-        expect(page.locator("#q-progress")).to_have_text("4 / 10")
-        print("OK Enter のキーリピートでは次へ飛ばない")
+        expect(page.locator("#q-progress")).to_contain_text("4 / 10")
+        print("OK キーボードで回答でき、Enter の押しっぱなしでは飛ばない")
 
-        # キーボードで回答（B と Enter）
-        page.keyboard.press("b")
-        assert "selected" in page.locator("#q-body .opt").nth(1).get_attribute("class")
-        page.keyboard.press("Enter")
-        expect(page.locator("#q-progress")).to_have_text("5 / 10")
-        print("OK キーボードで選んで回答できた")
-
-        # 8. やめて結果を見る
         page.click("#quit")
         expect(page.locator("#result")).to_be_visible()
-        print("OK 結果:", page.inner_text("#r-score"))
-        timeouts = page.locator("#r-types tr td").nth(5).inner_text()
-        assert timeouts == "1", timeouts
-        print("OK 時間切れ 1 問が記録された")
-        page.screenshot(path=str(SHOTS / "3_result.png"), full_page=True)
-
-        # 9. 練習モードで並べ替え（正解の順に押す）
+        assert page.locator("#r-types tr td").nth(5).inner_text() == "1"
+        print("OK 結果:", page.inner_text("#r-score"), "時間切れ 1 問")
         page.click("#r-home")
-        page.click("#types-none")
-        page.check('#type-rows input[data-type="order"]')
-        page.select_option("#opt-mode", "practice")
-        page.select_option("#opt-order", "source")
-        page.select_option("#opt-filter", "all")
-        page.select_option("#opt-count", "0")
-        page.click("#start")
-        # 最初の問題（[ n ]にあてはまる、の単一選択）は飛ばし、断片を並べる問題まで進める
+
+        # 3. 長文（3問組）: タブで切り替え、練習モードで解説
+        setup(page, ["reading"], mode="practice")
+        expect(page.locator("#q-tabs")).to_be_visible()
+        assert page.locator("#q-tabs .tab").count() == 3
+        assert "3問組" in page.inner_text("#q-group-badge")
+        page.screenshot(path=str(SHOTS / "2_reading_tab1.png"))
+        prompt1 = page.inner_text("#q-prompt")
+        page.locator("#q-tabs .tab").nth(2).click()
+        assert page.inner_text("#q-prompt") != prompt1
+        assert "current" in page.locator("#q-tabs .tab").nth(2).get_attribute("class")
+        page.locator("#q-tabs .tab").nth(0).click()
+        answer1 = page.evaluate("session.cur.unit.qs[0].accepted[0]")
+        page.fill(".text-answer", answer1)
+        page.click("#q-submit")
+        assert "current" in page.locator("#q-tabs .tab").nth(1).get_attribute("class")
+        assert "done" in page.locator("#q-tabs .tab").nth(0).get_attribute("class")
+        page.locator("#q-body .opt").first.click()
+        page.screenshot(path=str(SHOTS / "3_reading_tab2.png"))
+        page.click("#q-submit")
+        page.click("#q-submit")
+        expect(page.locator("#q-feedback")).to_be_visible()
+        assert page.locator("#q-feedback .fb-item").count() == 3
+        assert page.locator("#q-feedback .verdict").first.inner_text().startswith("正解")
+        print(f"OK 3問組をタブで切り替え、問1（{answer1}）は正解、3問分の解説が出た")
+        page.screenshot(path=str(SHOTS / "4_reading_feedback.png"), full_page=True)
+        page.click("#quit")
+        page.click("#r-home")
+
+        # 4. ア・イ・ウ: 本番と同じ6択、左にア・イ・ウ
+        setup(page, ["pair_combo"])
+        texts = page.locator("#q-body .opt .txt").all_inner_texts()
+        assert texts == ["アだけ", "イだけ", "ウだけ", "アとイ", "アとウ", "イとウ"], texts
+        assert page.inner_text("#q-sub").startswith("ア")
+        page.screenshot(path=str(SHOTS / "5_pair_combo.png"))
+        print("OK ア・イ・ウは6択（アだけ〜イとウ）で、左にア・イ・ウの対を表示")
+        page.click("#quit")
+        page.click("#r-home")
+
+        # 5. 用法: 下線
+        setup(page, ["usage"])
+        ul = page.inner_text("#q-passage .ul")
+        print(f"OK 用法の問題の下線: {page.inner_text('#q-passage')} → 下線は {ul}")
+        page.screenshot(path=str(SHOTS / "6_usage.png"))
+        page.click("#quit")
+        page.click("#r-home")
+
+        # 6. 並べ替え（断片の順番）
+        setup(page, ["order"], mode="practice")
         for _ in range(60):
             if page.locator(".order-slots").count():
                 break
             page.locator("#q-body .opt").first.click()
             page.click("#q-submit")
             page.click("#q-submit")
-        assert page.locator(".order-slots").count() == 1
-        answer = page.evaluate("session.current.q.accepted[0]")
+        answer = page.evaluate("session.cur.unit.qs[session.cur.tab].accepted[0]")
         for d in answer:
             page.keyboard.press(d)
-        page.screenshot(path=str(SHOTS / "4_order.png"))
+        page.screenshot(path=str(SHOTS / "7_order.png"))
         page.click("#q-submit")
         expect(page.locator("#q-feedback .verdict")).to_contain_text("正解")
-        print(f"OK 並べ替え {answer} を入力して正解と判定、解説を表示")
-        page.screenshot(path=str(SHOTS / "5_feedback.png"), full_page=True)
+        print(f"OK 並べ替え {answer} を入力して正解")
+        page.click("#quit")
 
-        # 10. 再読み込みすると、記憶したパスワードで開く
+        # 7. 再読み込みで自動的に開く
         page.reload()
         expect(page.locator("#home")).to_be_visible(timeout=20000)
-        print("OK 再読み込みで自動的に開いた")
+        print("OK 再読み込みで記憶したパスワードで開いた")
 
-        # 11. スマートフォンの幅
+        # 8. スマートフォンの幅
         m = browser.new_page(viewport={"width": 390, "height": 844})
         m.goto(URL)
         m.fill("#lock-pw", PW)
         m.click("#lock-form button")
         expect(m.locator("#home")).to_be_visible(timeout=20000)
-        m.click("#types-all")
-        m.select_option("#opt-mode", "exam")
-        m.select_option("#opt-order", "source")
-        m.click("#start")
-        m.screenshot(path=str(SHOTS / "6_mobile.png"))
-        print("OK スマートフォンの幅で表示")
+        setup(m, ["reading"])
+        sw = m.evaluate("document.documentElement.scrollWidth")
+        assert sw <= 390, sw
+        assert m.locator(".spi-next").is_visible() and m.locator(".spi-timer").is_visible()
+        m.screenshot(path=str(SHOTS / "8_mobile.png"))
+        print(f"OK スマートフォンの幅で横にはみ出さず（幅 {sw}px）、回答時間と次へが下に固定")
 
         assert not errors, errors
         print("OK ページのエラー 0 件")
