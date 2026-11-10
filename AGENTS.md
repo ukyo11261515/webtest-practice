@@ -1,9 +1,9 @@
-# Webテスト練習サイト（SPI 言語。Claude・Codex 共通。Claude は CLAUDE.md から読み込む）
+# Webテスト練習サイト（SPI。Claude・Codex 共通。Claude は CLAUDE.md から読み込む）
 
 段階: 開発中（自分だけが使う。2026-11-09 から https://ukyo11261515.github.io/webtest-practice/ に公開。問題はパスワードで暗号化している）
 
 ## 目的
-- 何を作るか: 友人と作った SPI 言語の問題集（Excel）を、本番に近い制限時間で解く練習サイト。
+- 何を作るか: 友人と作った SPI 言語の問題集（Excel）と、日付ごとの問題セット（言語・非言語・英語）を、本番に近い形式と制限時間で解く練習サイト。
 - 誰が使うか: 本人だけ。
 - いちばん大事なこと: 問題の平文を公開リポジトリに出さない（site/data.enc.json の暗号文だけを公開する）。問題が出てからの経過秒数を常に表示する。
 
@@ -20,7 +20,7 @@
 - 公開: main に push すると GitHub Actions（.github/workflows/pages.yml）が site/ を GitHub Pages に出す。
 
 ## このプロジェクトだけの決まり
-- Excel、out/、.env、手元版の HTML を commit しない。テストには実在の問題を書かず、形だけをまねた見本を使う。
+- Excel、out/、.env、手元版の HTML、問題セットの JSON を commit しない。問題セットは手元版にだけ入れる（docs/SET_SCHEMA.md、docs/SPEC.md の問題セットの節）。テストには実在の問題を書かず、形だけをまねた見本を使う。
 - 問題集の版を上げたら（V1 など）、build_data.py の引数を新しい版にして作り直し、種類ごとの問題数の変化を確かめる。
 - 種類の判定は build_data.py の classify と TYPE_OVERRIDES。機械で分けにくい行は TYPE_OVERRIDES に行番号で足す。
 

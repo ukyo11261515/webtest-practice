@@ -18,12 +18,23 @@ function norm(text) {
   return String(text || "")
     .normalize("NFKC")
     .replace(/[（(《][^）)》]*[）)》]/g, "")
-    .replace(/[\s　・、。,.]/g, "");
+    .replace(/[\s　・、。,.]/g, "")
+    .toLowerCase(); // 英語の入力は大文字と小文字を区別しない
+}
+
+// 数値の入力の正規化（全角・桁区切り・空白をそろえる）。分数は「分子/分母」の文字列で、約分した形を正解とする。
+function numNorm(text) {
+  return String(text || "").normalize("NFKC").replace(/[,\s]/g, "").replace(/^\+/, "");
 }
 
 function isCorrect(q, answer) {
   if (!q.scored) return null;
   if (q.mode === "text") return q.accepted.includes(norm(answer));
+  if (q.mode === "number") {
+    const a = numNorm(answer);
+    if (!a) return false;
+    return q.accepted.some((x) => x === a || (!x.includes("/") && !a.includes("/") && Number(x) === Number(a)));
+  }
   if (q.mode === "order") return q.accepted.includes(answer);
   const mine = [...answer].sort().join(",");
   return q.accepted.some((a) => [...a].sort().join(",") === mine);
@@ -31,6 +42,7 @@ function isCorrect(q, answer) {
 
 function answerLabel(q, answer) {
   if (q.mode === "text") return answer ? answer : "（無回答）";
+  if (q.mode === "number") return numNorm(answer) ? `${numNorm(answer)}${q.unit || ""}` : "（無回答）";
   if (q.mode === "order") return answer ? answer.split("").join(" → ") : "（無回答）";
   if (!answer || answer.length === 0) return "（無回答）";
   if (q.optionKind === "kana") return [...answer].sort().join("と");
@@ -44,6 +56,7 @@ function correctLabel(q) {
   if (!q.scored) return "（正解なし）";
   return q.accepted.map((a) => {
     if (q.mode === "text") return a;
+    if (q.mode === "number") return `${a}${q.unit || ""}`;
     if (q.mode === "order") return a.split("").join(" → ");
     return answerLabel(q, a);
   }).join("　または　");
@@ -132,6 +145,7 @@ function defaultSettings() {
   for (const [k, t] of Object.entries(DATA.types)) seconds[k] = t.seconds;
   return {
     v: SETTINGS_VERSION, seconds, types: Object.keys(DATA.types), filter: "all", count: 20,
+    sets: (DATA.sets || [{ id: "spi" }]).map((x) => x.id), known: Object.keys(DATA.types), knownSets: (DATA.sets || [{ id: "spi" }]).map((x) => x.id),
     order: "random", resume: {}, mode: "exam", auto: true, sound: true,
   };
 }
@@ -150,6 +164,16 @@ function loadSettings() {
   }
   if (!merged.resume || typeof merged.resume !== "object") merged.resume = {};
   for (const k of ["resumeRow", "start", "startNumber"]) delete merged[k];
+  // 新しく増えたタイプと問題セットは、最初は選んだ状態にする（以前の設定に無いものだけ）。
+  // known が無い古い設定は、制限時間を覚えていたタイプ（＝当時あったタイプ）を既知とみなす。
+  const known = new Set(s.known || Object.keys(s.seconds || {}));
+  for (const k of Object.keys(DATA.types)) if (!known.has(k) && !merged.types.includes(k)) merged.types.push(k);
+  const knownSets = new Set(s.knownSets || ["spi"]);
+  for (const id of d.sets) if (!knownSets.has(id) && !merged.sets.includes(id)) merged.sets.push(id);
+  merged.types = merged.types.filter((k) => k in DATA.types);
+  merged.sets = merged.sets.filter((id) => d.sets.includes(id));
+  merged.known = Object.keys(DATA.types);
+  merged.knownSets = d.sets;
   return merged;
 }
 
@@ -163,12 +187,14 @@ function history() { return store.get(KEY_HISTORY, {}); }
 const resumeKey = (type) => `${type}|${settings.filter}`;
 const resumeRow = (type) => settings.resume[resumeKey(type)] || 0;
 
-const scoredOf = (k) => DATA.questions.filter((q) => q.type === k && q.scored);
+const inSets = (q) => (q.sets || ["spi"]).some((id) => settings.sets.includes(id));
+const scoredOf = (k) => DATA.questions.filter((q) => q.type === k && q.scored && inSets(q));
 
 function initHome() {
   settings = loadSettings();
   saveSettings();
   $("home-title").textContent = DATA.title;
+  renderSetChips();
   renderTypeChips();
   renderTypeTimes();
   $("opt-auto").checked = settings.auto;
@@ -176,9 +202,32 @@ function initHome() {
   refreshHome();
 }
 
+// 問題セット（SPI問題集、日付ごとの問題）。2つ以上あるときだけ出す。
+function renderSetChips() {
+  const sets = DATA.sets || [{ id: "spi", label: "SPI問題集" }];
+  $("set-card").hidden = sets.length < 2;
+  $("set-chips").replaceChildren(...sets.map((s) => {
+    const n = DATA.questions.filter((q) => q.scored && (q.sets || ["spi"]).includes(s.id)).length;
+    const chip = el("button", { type: "button", class: "chip", "data-set": s.id, "aria-pressed": "false" },
+      el("span", { class: "chip-check" }),
+      el("span", { class: "chip-body" }, el("span", { class: "chip-title", text: s.label }), el("span", { class: "chip-meta", text: `${n}問` })));
+    chip.addEventListener("click", () => {
+      settings.sets = settings.sets.includes(s.id) ? settings.sets.filter((x) => x !== s.id) : [...settings.sets, s.id];
+      saveSettings(); renderTypeChips(); refreshHome();
+    });
+    return chip;
+  }));
+}
+
 function renderTypeChips() {
   const hist = history();
-  $("type-chips").replaceChildren(...Object.entries(DATA.types).map(([k, t]) => {
+  let section = null;
+  $("type-chips").replaceChildren(...Object.entries(DATA.types).flatMap(([k, t]) => {
+    const head = [];
+    if (t.section && t.section !== section && new Set(Object.values(DATA.types).map((x) => x.section)).size > 1) {
+      section = t.section;
+      head.push(el("div", { class: "chip-section", text: section }));
+    }
     const qs = scoredOf(k);
     const tried = qs.filter((q) => hist[q.id]);
     const n = tried.reduce((a, q) => a + hist[q.id].n, 0);
@@ -191,11 +240,12 @@ function renderTypeChips() {
         el("span", { class: "chip-title", text: t.label }),
         el("span", { class: "chip-meta", text: `${qs.length}問・${settings.seconds[k]}秒` }),
         el("span", { class: "chip-meta", text: `${done}・${rate}` })));
+    chip.classList.toggle("empty", qs.length === 0);
     chip.addEventListener("click", () => {
       settings.types = settings.types.includes(k) ? settings.types.filter((x) => x !== k) : [...settings.types, k];
       saveSettings(); refreshHome();
     });
-    return chip;
+    return [...head, chip];
   }));
 }
 
@@ -243,6 +293,11 @@ $("times-reset").addEventListener("click", () => {
 });
 
 function refreshHome() {
+  for (const c of document.querySelectorAll("#set-chips .chip")) {
+    const on = settings.sets.includes(c.dataset.set);
+    c.classList.toggle("on", on);
+    c.setAttribute("aria-pressed", String(on));
+  }
   for (const c of document.querySelectorAll("#type-chips .chip")) {
     const on = settings.types.includes(c.dataset.type);
     c.classList.toggle("on", on);
@@ -265,7 +320,7 @@ function refreshHome() {
 function pool() {
   const hist = history();
   return DATA.questions.filter((q) => {
-    if (!settings.types.includes(q.type) || !q.scored) return false;
+    if (!settings.types.includes(q.type) || !q.scored || !inSets(q)) return false;
     if (settings.filter === "wrong") return hist[q.id] && (hist[q.id].last !== true || hist[q.id].lastTimedOut);
     if (settings.filter === "new") return !hist[q.id];
     return true;
@@ -381,6 +436,15 @@ const INSTR = {
   order_slot: "AからEまでのことばを空所［ 1 ］から［ 5 ］に入れて意味の通る文を完成させます。そのとき指定された空所にあてはまるものを1つ選びなさい。",
   order_seq: "1から5までのことばを並べ替えて、意味の通る文を完成させなさい。文の頭にくるものから順に選びます。",
   reading: "つぎの文を読んで、各問いに答えなさい。",
+  nv_inference: "次の説明を読んで、各問いに答えなさい。",
+  nv_combo: "次の説明を読んで、各問いに答えなさい。",
+  nv_ratio: "次の説明を読んで、各問いに答えなさい。",
+  nv_table: "次に示した表や資料を使って、各問いに答えなさい。",
+  nv_calc: "次の説明を読んで、各問いに答えなさい。",
+  en_vocab: "以下の語や説明文に最も近い意味をもつ語を1つ選びなさい。",
+  en_fill: "以下の文の（　）に入れる語句として最も適切なものを1つ選びなさい。",
+  en_rewrite: "2文がほぼ同じ意味を表すように書き換えるとき、指定された枠に入る語を選びなさい。",
+  en_reading: "次の記述を読んで、各問いに答えなさい。",
 };
 
 // ア・イ・ウの問題は、本番と同じく6つの組み合わせから1つ選ぶ。
@@ -407,7 +471,8 @@ function passageNodes(q) {
     .replace(/[＝ー]{3,}/g, "［　　　］")
     .replace(/＝＝\s*([^＝\s]{1,2})\s*＝＝/g, "［ $1 ］");
   if (q.type === "order" && q.mode === "order") text = text.replace(/\s*12345\s*/, "［1］［2］［3］［4］［5］");
-  if (q.type !== "meaning" && q.type !== "usage") return [text];
+  // 下線は熟語の意味・語句の用法と、下線の語が指定された問題（英語の同意語など）に引く。
+  if (q.type !== "meaning" && q.type !== "usage" && !q.underline) return [text];
 
   let target = q.underline || null;
   let whole = false;
@@ -474,7 +539,20 @@ function startQuiz(questions, retry = false) {
 }
 
 function initialAnswer(q) {
-  return q.mode === "order" || q.mode === "text" ? "" : [];
+  return q.mode === "order" || q.mode === "text" || q.mode === "number" ? "" : [];
+}
+
+// 表（問題セットの tables）を本物の表として描く。
+function tableNodes(q) {
+  return (q.tables || []).map((t) => {
+    const table = el("table", { class: "q-table" });
+    if (t.caption) table.append(el("caption", { text: t.caption }));
+    (t.rows || []).forEach((row, i) => {
+      const head = i < (t.header_rows ?? 1);
+      table.append(el("tr", {}, ...row.map((c) => el(head ? "th" : "td", { text: c == null ? "" : String(c) }))));
+    });
+    return el("div", { class: "q-table-wrap" }, table);
+  });
 }
 
 function renderUnit() {
@@ -521,13 +599,17 @@ function renderTab() {
   const passage = $("q-passage");
   passage.replaceChildren(...passageNodes(q));
   passage.className = "spi-passage" + (q.passage.length < 60 ? " short" : "");
-  $("q-sub").textContent = q.optionKind === "kana" ? q.options.map((o) => `${o.key}　${o.text}`).join("\n") : "";
+  $("q-sub").replaceChildren(
+    ...tableNodes(q),
+    q.afterTable ? el("div", { class: "after-table", text: q.afterTable }) : "",
+    q.optionKind === "kana" ? q.options.map((o) => `${o.key}　${o.text}`).join("\n") : "");
 
   $("q-prompt").textContent = promptFor(q);
 
   const body = $("q-body");
   if (q.mode === "order") body.replaceChildren(renderOrder(q));
   else if (q.mode === "text") body.replaceChildren(renderText(q));
+  else if (q.mode === "number") body.replaceChildren(renderNumber(q));
   else body.replaceChildren(renderChoices(q));
   if (cur.done) markAnswers(q);
 
@@ -616,8 +698,35 @@ function pushOrder(key) {
   cur.redraw();
 }
 
-function renderText() {
+// 英文の書き換え: 本番と同じく、指定された枠ごとに語群からプルダウンで選ぶ。答えは「語 語」の形でまとめる。
+function rewriteParts(q) {
+  const words = ((q.passage.match(/語群[:：]\s*\[([^\]]+)\]/) || [])[1] || "").split("/").map((w) => w.trim()).filter(Boolean);
+  const frames = (q.prompt.match(/\((\d)\)\s*と\s*\((\d)\)/) || []).slice(1);
+  return words.length && frames.length === 2 ? { words, frames } : null;
+}
+
+function renderRewrite(q, parts) {
   const cur = session.cur;
+  const chosen = (cur.answers[cur.tab] || "").split(" ");
+  const selects = parts.frames.map((f, i) => {
+    const sel = el("select", { class: "rewrite-select", "aria-label": `(${f}) に入る語` },
+      el("option", { value: "", text: "選択してください" }), ...parts.words.map((w) => el("option", { value: w, text: w })));
+    sel.value = chosen[i] || "";
+    sel.disabled = cur.done;
+    sel.addEventListener("change", () => {
+      const v = selects.map((x) => x.value);
+      cur.answers[cur.tab] = v.some(Boolean) ? v.join(" ") : "";
+      cur.touched[cur.tab] = v.every(Boolean);
+    });
+    return sel;
+  });
+  return el("div", { class: "rewrite" }, ...parts.frames.map((f, i) => el("label", { class: "rewrite-row" }, el("span", { text: `(${f})` }), selects[i])));
+}
+
+function renderText(q) {
+  const cur = session.cur;
+  const parts = q && q.type === "en_rewrite" ? rewriteParts(q) : null;
+  if (parts) return renderRewrite(q, parts);
   const input = el("input", { class: "text-answer", type: "text", autocomplete: "off", "aria-label": "答え" });
   input.value = cur.answers[cur.tab];
   input.disabled = cur.done;
@@ -628,6 +737,41 @@ function renderText() {
   // パソコンだけ入力欄に移る（スマートフォンではキーボードが本文を隠すため）。
   if (window.matchMedia("(pointer: fine)").matches) setTimeout(() => { if (!cur.done) input.focus({ preventScroll: true }); });
   return el("div", {}, input, el("div", { class: "hint", text: "文中のことばをそのまま入力します。" }));
+}
+
+// 数値の入力（非言語の入力式）。正解が分数なら、分子と分母の2つの欄にする。
+function renderNumber(q) {
+  const cur = session.cur;
+  const fraction = q.accepted.some((a) => a.includes("/"));
+  const box = (label) => {
+    const input = el("input", { class: "num-answer", type: "text", inputmode: "decimal", autocomplete: "off", "aria-label": label });
+    input.disabled = cur.done;
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229 && !e.repeat) { e.preventDefault(); next(); }
+    });
+    return input;
+  };
+  let wrap;
+  if (fraction) {
+    const [n0, d0] = (cur.answers[cur.tab] || "/").split("/");
+    const num = box("分子"); const den = box("分母");
+    num.value = n0 || ""; den.value = d0 || "";
+    const sync = () => {
+      cur.answers[cur.tab] = num.value || den.value ? `${num.value}/${den.value}` : "";
+      cur.touched[cur.tab] = !!(num.value && den.value);
+    };
+    num.addEventListener("input", sync); den.addEventListener("input", sync);
+    wrap = el("div", { class: "fraction" }, el("div", { class: "frac-col" }, num, el("div", { class: "frac-bar" }), den), q.unit ? el("span", { class: "unit", text: q.unit }) : "");
+    if (window.matchMedia("(pointer: fine)").matches) setTimeout(() => { if (!cur.done) num.focus({ preventScroll: true }); });
+  } else {
+    const input = box("答え");
+    input.value = cur.answers[cur.tab] || "";
+    input.addEventListener("input", () => { cur.answers[cur.tab] = input.value; cur.touched[cur.tab] = input.value.length > 0; });
+    wrap = el("div", { class: "number-row" }, input, q.unit ? el("span", { class: "unit", text: q.unit }) : "");
+    if (window.matchMedia("(pointer: fine)").matches) setTimeout(() => { if (!cur.done) input.focus({ preventScroll: true }); });
+  }
+  const hint = fraction ? "分数は約分した形で、分子と分母を入れます。" : "数値を半角または全角で入れます。";
+  return el("div", {}, wrap, el("div", { class: "hint", text: hint }));
 }
 
 // ---- 回答時間のメーター（緑→黄→橙→赤のマス。赤まで進むと次へ） ----
@@ -805,8 +949,12 @@ document.addEventListener("keydown", (e) => {
 const fmtSec = (ms) => (ms / 1000).toFixed(1);
 
 function promptFor(q) {
-  const show = q.prompt && (q.type === "reading" || (q.type === "order" && q.mode !== "order") || q.type === "blank_passage");
-  return show ? q.prompt : "";
+  // 問題セットの問題（非言語・英語など）は、設問の問いをいつも出す。
+  const fromSet = !(q.sets || ["spi"]).includes("spi");
+  const show = q.prompt && (fromSet || q.type === "reading" || (q.type === "order" && q.mode !== "order") || q.type === "blank_passage");
+  if (!show) return "";
+  // 書き換えはプルダウンで選ぶので、入力の指示を選ぶ指示に言い換える。
+  return q.type === "en_rewrite" ? q.prompt.replace(/を、?この順に半角スペースで区切って入力しなさい。/, "を選びなさい。") : q.prompt;
 }
 
 // 1問分の答え合わせのカード。compact は練習モード用（本文と選択肢は画面に出ているので省く）。
@@ -829,6 +977,8 @@ function reviewCard(r, no, compact = false) {
       const d = el("details", { class: "rv-more" }, el("summary", { text: "本文を表示" }), passage);
       card.append(d);
     } else card.append(passage);
+    for (const t of tableNodes(q)) card.append(t);
+    if (q.afterTable) card.append(el("div", { class: "rv-sub", text: q.afterTable }));
     if (q.optionKind === "kana") card.append(el("div", { class: "rv-sub", text: q.options.map((o) => `${o.key}　${o.text}`).join("\n") }));
     const pr = promptFor(q);
     if (pr) card.append(el("div", { class: "rv-prompt", text: pr }));

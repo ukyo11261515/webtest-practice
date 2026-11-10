@@ -49,7 +49,10 @@ def main():
         page.click("#quit")
         expect(page.locator("#result")).to_be_visible()
         assert page.locator("#r-list .rv").count() == 2
-        assert page.locator("#r-list .rv-explain").first.is_visible()
+        # 解説のある問題は、解説が折りたたまれずに見えていること
+        with_expl = page.evaluate("session.results.filter(r => r.q.explanation).length")
+        visible = sum(1 for i in range(page.locator("#r-list .rv-explain").count()) if page.locator("#r-list .rv-explain").nth(i).is_visible())
+        assert visible == with_expl, (visible, with_expl)
         print("OK 結果画面で解説が見える:", page.inner_text("#r-score").replace("\n", " "))
 
         page.click("#r-home")
@@ -61,6 +64,21 @@ def main():
         page.locator("#q-tabs .tab").nth(2).click()
         print("OK 長文の3問組をタブで切り替えられる")
         page.click("#quit")
+
+        # 問題セットがあるとき: SPI問題集を外し、表の問題が表として出ることを確かめる
+        sets = page.evaluate("DATA.sets.map(s => s.id)")
+        if len(sets) > 1 and page.evaluate("Object.keys(DATA.types).includes('nv_table')"):
+            page.click("#r-home") if page.locator("#result").is_visible() else None
+            expect(page.locator("#home")).to_be_visible()
+            page.click('#set-chips [data-set="spi"]')
+            page.click("#types-none")
+            page.click('#type-chips [data-type="nv_table"]')
+            page.click('#mode-seg [data-mode="exam"]')
+            page.click("#start")
+            assert page.locator("#q-sub .q-table").count() >= 1
+            assert page.evaluate("session.questions.every(q => !q.sets.includes('spi') || q.sets.length > 1)")
+            print(f"OK 問題セット（{len(sets) - 1} 個）を選べ、表の問題は表として出る")
+            page.click("#quit")
 
         page.reload()
         expect(page.locator("#home")).to_be_visible(timeout=10000)

@@ -25,15 +25,32 @@ PBKDF2_ITERATIONS = 600_000
 
 # 種類ごとの制限時間（秒）の既定値。サイトの設定画面で変えられる。
 TYPES = {
-    "meaning": ("熟語の意味", 10),
-    "usage": ("語句の用法", 15),
-    "pair": ("二語の関係", 10),
-    "pair_combo": ("二語の関係（組み合わせ）", 20),
-    "blank_short": ("空欄補充（短文）", 10),
-    "blank_passage": ("空欄補充（文章）", 30),
-    "order": ("文の並べ替え", 60),
-    "reading": ("長文読解", 60),
+    "meaning": ("熟語の意味", 10, "言語"),
+    "usage": ("語句の用法", 15, "言語"),
+    "pair": ("二語の関係", 10, "言語"),
+    "pair_combo": ("二語の関係（組み合わせ）", 20, "言語"),
+    "blank_short": ("空欄補充（短文）", 10, "言語"),
+    "blank_passage": ("空欄補充（文章）", 30, "言語"),
+    "order": ("文の並べ替え", 60, "言語"),
+    "reading": ("長文読解", 60, "言語"),
 }
+
+# 手元版で問題セット（日付ごとの問題）から使うタイプ。並びは本番の順（言語 → 非言語 → 英語）。
+EXTRA_TYPES = {
+    "nv_inference": ("推論", 90, "非言語"),
+    "nv_combo": ("場合の数・確率", 60, "非言語"),
+    "nv_ratio": ("割合・損益算", 60, "非言語"),
+    "nv_table": ("表・資料の読み取り", 90, "非言語"),
+    "nv_calc": ("その他の計算", 60, "非言語"),
+    "en_vocab": ("英語の語彙", 15, "英語"),
+    "en_fill": ("英語の空欄補充", 20, "英語"),
+    "en_rewrite": ("英文の書き換え", 45, "英語"),
+    "en_reading": ("英語の長文", 60, "英語"),
+}
+
+
+def types_payload(types: dict) -> dict:
+    return {k: {"label": v[0], "seconds": v[1], "section": v[2]} for k, v in types.items()}
 
 LETTER_LINE = re.compile(r"^([A-H])[\s　]+(.+)$")
 LETTER_ONLY = re.compile(r"^([A-H])$")
@@ -49,7 +66,7 @@ def norm(text: str) -> str:
     t = unicodedata.normalize("NFKC", text or "")
     t = READING_PARENS.sub("", t)
     t = re.sub(r"[\s　・、。,.]", "", t)
-    return t
+    return t.lower()  # 英語の入力は大文字と小文字を区別しない
 
 
 def kata_to_hira(text: str) -> str:
@@ -282,6 +299,7 @@ def build_questions(rows):
                 "explanation": (logic or "").strip(),
                 "group": f"g{group_key(passage)}" if in_group else None,
                 "underline": UNDERLINE_OVERRIDES.get(row),
+                "sets": ["spi"],
             }
         )
     return questions, issues
@@ -347,7 +365,8 @@ def main(argv=None):
     payload = {
         "title": "SPI 言語",
         "source": args.xlsx.name,
-        "types": {k: {"label": v[0], "seconds": v[1]} for k, v in TYPES.items()},
+        "types": types_payload(TYPES),
+        "sets": [{"id": "spi", "label": "SPI問題集"}],
         "questions": questions,
     }
 
